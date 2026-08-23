@@ -356,7 +356,7 @@ function chip(h){
   /* The desktop says "failed (3)". The count is the difference between "something went wrong" and
      "three things went wrong", and it was being dropped on the way to the phone. */
   var label = state==="failed" && (h.fails|0)>0 ? "failed ("+(h.fails|0)+")" : state;
-  var txt=name+" "+label+(state==="running"&&elapsed?" "+coarse(live(elapsed)):"");
+  var txt=name+" "+label+(state==="running"&&elapsed?" "+span(live(elapsed)):"");
   return '<span class="chip" style="color:'+c+';border-color:'+c+'55;background:'+c+'14">'+esc(txt)+'</span>';
 }
 
@@ -364,8 +364,12 @@ function runCard(r,queued,due){
   var stripe = due?"var(--dim)" : r.kind==="fault"?"var(--red)" : r.kind==="done"?"var(--green)" :
                queued?"var(--amber)":"var(--blue)";
   var right = due ? "not started"
+            /* A run actually RUNNING keeps its seconds - it is watched, and how far it has got in
+               the last few seconds is the question. Waiting and granted stay coarse: nothing about them
+               changes second to second. Kept in step with the desktop's PaintMachineRow. */
             : queued ? "waiting "+coarse(live(r.waited))
-            : coarse(live(r.held));
+            : r.state==="granted" ? "granted "+coarse(live(r.held))
+            : span(live(r.held));
   var meta = due ? "the gate still owes this half · no ticket claimed yet"
                  : [r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
   var h='<div class="card" style="--stripe:'+stripe+'">'
@@ -648,7 +652,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823235255";
+  var BUILD="20260824000403";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
