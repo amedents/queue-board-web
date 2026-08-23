@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Queue Board" />
+<meta name="theme-color" content="#0F1115" />
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<title>Queue Board</title>
+<style>
+/* Palette is lifted verbatim from QueueBoard.cs so the phone and the desktop cannot drift apart in
+   meaning: one colour, one meaning, on both. */
+:root{
+  --bg:#0F1115; --card:#171A21; --border:#262B36; --text:#E6E9EF; --dim:#8B93A7;
+  --blue:#4A9EFF; --green:#3FB950; --red:#F85149; --amber:#D29922; --purple:#A371F7;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text)}
+body{
+  font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+.dim{color:var(--dim)}
+h2{font:600 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.09em;
+   text-transform:uppercase;margin:22px 0 9px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;color:var(--dim)}
+
+/* The status light, same idea as the desktop's corner light: inset equally from top and right, over
+   everything, never in the layout flow so nothing below it moves when it changes. */
+#light{position:fixed;top:calc(14px + env(safe-area-inset-top));right:14px;width:9px;height:9px;
+       border-radius:50%;z-index:40;box-shadow:0 0 0 5px rgba(63,185,80,.15)}
+#light.stale{box-shadow:0 0 0 5px rgba(210,153,34,.16)}
+#light.dead{box-shadow:0 0 0 5px rgba(248,81,73,.16)}
+
+#age{font-size:12.5px;color:var(--dim);padding-right:26px;min-height:18px}
+#age b{font-weight:600;color:var(--text)}
+#age.stale b{color:var(--amber)} #age.dead b{color:var(--red)}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:9px;
+      padding:11px 12px 11px 14px;margin:8px 0;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--stripe,var(--blue))}
+.br{font-weight:600;font-size:14.5px;word-break:break-all;line-height:1.3}
+.meta{margin-top:4px;color:var(--dim)}
+.row2{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:5px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;padding:3px 8px;border-radius:5px;
+      border:1px solid;white-space:nowrap}
+.prog{margin-top:6px;color:var(--dim);word-break:break-word}
+
+.hist{margin-top:2px}
+.hrow{padding:9px 0;border-bottom:1px solid var(--border)}
+.hrow:last-child{border-bottom:0}
+.hmeta{display:flex;gap:9px;align-items:baseline;margin-top:3px;flex-wrap:wrap}
+.hmeta .grow{flex:1}
+
+.wedge{background:rgba(248,81,73,.11);border:1px solid rgba(248,81,73,.45);border-radius:9px;
+       padding:11px 13px;margin:8px 0}
+.wedge .br{color:var(--red)}
+
+.legend{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
+.lg{display:flex;align-items:flex-start;gap:9px;margin:7px 0}
+.lg i{width:5px;height:15px;border-radius:2px;flex:0 0 auto;margin-top:2px}
+.lg b{font-weight:600;font-size:13px;flex:0 0 74px}
+
+button{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--border);
+       border-radius:8px;padding:11px 15px;cursor:pointer}
+button.p{background:var(--blue);border-color:var(--blue);color:#08101c;font-weight:600}
+textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);border:1px solid var(--border);
+         border-radius:8px;padding:11px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+.pad{padding:8px 0 4px}
+.hide{display:none !important}
+#err{color:var(--red);margin:10px 0;word-break:break-word}
+.foot{margin-top:26px;color:var(--dim);font-size:11.5px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div id="light"></div>
+
+<!-- Pairing. Shown until a key is stored; reachable afterwards from the footer. -->
+<section id="pair" class="hide">
+  <h2>Queue Board</h2>
+  <p class="dim" style="margin:0 0 12px">
+    On the PC, run <span class="mono">tools/queue-board-web/publish-snapshot.ps1 -Pair</span> and paste
+    the line it prints. It carries the address of the encrypted snapshot and the key to read it — the key
+    is stored only on this phone and is never sent anywhere.
+  </p>
+  <textarea id="pairIn" placeholder="qb1...." autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+  <div class="pad"><button class="p" id="pairGo">Pair this phone</button></div>
+  <div id="pairErr" style="color:var(--red)"></div>
+</section>
+
+<main id="app" class="hide">
+  <div id="age">reading…</div>
+  <div id="err"></div>
+  <div id="body"></div>
+  <div class="foot">
+    Snapshot, not a live feed — the PC encrypts a projection of the board and pushes it out; nothing
+    listens on the PC and GitHub stores bytes it cannot read.
+    <br /><a href="#" id="repair" style="color:var(--dim)">re-pair this phone</a>
+  </div>
+</main>
+
+<script>
+"use strict";
+var LS="queue_board_web_v1";
+var POLL_MS=30000;
+/* ?selftest=1 runs ONE fetch-decrypt-render, arms no timers, and writes a verdict into the DOM. It
+   exists because the live path is the one that can silently rot - a payload the PC encrypts that this
+   browser cannot decrypt looks identical to a quiet machine - and because the 1 s render timer keeps
+   headless Chrome's virtual clock alive forever, so the app is untestable without it. */
+var SELFTEST=/[?&]selftest/.test(location.search);
+function verdict(ok,msg){
+  var d=document.createElement("div");
+  d.id="selftest"; d.textContent=(ok?"PASS":"FAIL")+" "+msg;
+  document.body.appendChild(d);
+}
+
+function el(id){return document.getElementById(id)}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+function cfgLoad(){try{return JSON.parse(localStorage.getItem(LS))||null}catch(e){return null}}
+function cfgSave(c){try{localStorage.setItem(LS,JSON.stringify(c));return true}catch(e){return false}}
+
+/* ---- duration formatting: the same shapes the desktop prints -------------------------------- */
+function span(s){
+  if(s==null||s<0)return "--";
+  s=Math.round(s);
+  if(s<60)return s+"s";
+  var m=Math.floor(s/60), sec=s%60;
+  if(m<60)return m+"m"+(sec<10?"0":"")+sec+"s";
+  var h=Math.floor(m/60); m=m%60;
+  return h+"h"+(m<10?"0":"")+m+"m";
+}
+
+/* ---- crypto --------------------------------------------------------------------------------- */
+function b64bytes(b64){
+  var bin=atob(b64), a=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);
+  return a;
+}
+function parsePair(str){
+  str=(str||"").trim();
+  if(str.indexOf("qb1.")!==0) throw new Error("that does not look like a pairing string (it starts with qb1.)");
+  var raw=atob(str.slice(4));
+  var cut=raw.lastIndexOf("|");
+  if(cut<0) throw new Error("pairing string is incomplete");
+  var url=raw.slice(0,cut), key=raw.slice(cut+1);
+  if(!/^https:\/\//.test(url)) throw new Error("pairing string does not carry an https address");
+  if(b64bytes(key).length!==32) throw new Error("pairing string does not carry a 256-bit key");
+  return {url:url,key:key};
+}
+/* The publisher APPENDS the 16-byte GCM tag to the ciphertext, which is exactly the layout
+   crypto.subtle.decrypt expects — so the two halves are passed through untouched. */
+function decryptPayload(cfg,doc){
+  return crypto.subtle.importKey("raw",b64bytes(cfg.key),{name:"AES-GCM"},false,["decrypt"])
+    .then(function(k){
+      return crypto.subtle.decrypt({name:"AES-GCM",iv:b64bytes(doc.iv)},k,b64bytes(doc.ct));
+    })
+    .then(function(buf){ return JSON.parse(new TextDecoder().decode(buf)); });
+}
+
+/* ---- fetch ----------------------------------------------------------------------------------- */
+var cfg=null, snap=null, snapAt=0, lastErr="", polling=false;
+
+function poll(){
+  if(polling||!cfg)return;
+  polling=true;
+  /* The cache-buster is load-bearing: the gist CDN sends max-age=300 and without a unique query the
+     phone would sit on a five-minute-old board while believing it had just refreshed. Measured
+     propagation from publish to visible with the buster: ~59 s. */
+  fetch(cfg.url+"?t="+Date.now(),{cache:"no-store"})
+    .then(function(r){ if(!r.ok)throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(doc){
+      if(!doc||!doc.ct) throw new Error("the snapshot is empty — has the PC published yet?");
+      return decryptPayload(cfg,doc);
+    })
+    .then(function(p){
+      snap=p; snapAt=Date.now(); lastErr="";
+      try{ localStorage.setItem(LS+"_last",JSON.stringify({p:p,at:snapAt})); }catch(e){}
+      render();
+      if(SELFTEST){
+        /* Assert the payload actually carries a board, not merely that decryption threw nothing: an
+           empty object decrypts perfectly and renders as a quiet machine. */
+        var bad=[];
+        if(typeof p.t!=="string"||isNaN(Date.parse(p.t))) bad.push("t is not a parsable timestamp: "+p.t);
+        if(!("history" in p)||!("running" in p)||!("builds" in p)) bad.push("payload is missing sections");
+        if(Math.abs(ageSec())>86400) bad.push("snapshot age is implausible: "+Math.round(ageSec())+"s");
+        if(document.getElementById("body").innerHTML.length<200) bad.push("nothing rendered");
+        verdict(bad.length===0, bad.length? bad.join(" | ")
+          : "decrypted "+JSON.stringify(p).length+"B, age "+Math.round(ageSec())+"s, "
+            +(p.history||[]).length+" history rows, "+(p.bundles||[]).length+" bundles");
+      }
+    })
+    .catch(function(e){
+      /* A decrypt failure is almost always a stale key after -Rotate, and "OperationError" tells the
+         user nothing — name the likely cause instead of the exception. */
+      lastErr = (e&&e.name==="OperationError")
+        ? "could not decrypt — the PC's key was probably rotated. Re-pair this phone."
+        : (e&&e.message)||String(e);
+      render();
+      if(SELFTEST) verdict(false,lastErr);
+    })
+    .then(function(){ polling=false; });
+}
+
+/* ---- render ---------------------------------------------------------------------------------- */
+/* Every duration in the payload was measured when the snapshot was TAKEN, so it is stale by exactly the
+   snapshot's age. Adding that age back keeps a running claim ticking between polls instead of freezing;
+   the age itself is on screen, so a board that has stopped updating is visibly stale rather than
+   quietly wrong. */
+function ageSec(){ return snap ? Math.max(0,(Date.now()-snapAt)/1000 + (snapAt-Date.parse(snap.t))/1000) : 0; }
+function live(v){ return v==null?null:v+ageSec(); }
+
+function chip(name,state,elapsed){
+  var c=state==="passed"?"var(--green)":state==="failed"?"var(--red)":
+        state==="running"?"var(--blue)":"var(--dim)";
+  var txt=name+" "+state+(state==="running"&&elapsed?" "+span(live(elapsed)):"");
+  return '<span class="chip" style="color:'+c+';border-color:'+c+'55;background:'+c+'14">'+esc(txt)+'</span>';
+}
+
+function runCard(r,queued,due){
+  var stripe = due?"var(--dim)" : r.kind==="fault"?"var(--red)" : r.kind==="done"?"var(--green)" :
+               queued?"var(--amber)":"var(--blue)";
+  var right = due ? "not started"
+            : queued ? "waiting "+span(live(r.waited))
+            : span(live(r.held));
+  var meta = due ? "the gate still owes this half · no ticket claimed yet"
+                 : [r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
+  var h='<div class="card" style="--stripe:'+stripe+'">'
+      + '<div class="br">'+esc(r.label)+'</div>'
+      + '<div class="row2"><div class="mono dim">'+esc(meta)+'</div>'
+      + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';white-space:nowrap">'+esc(right)+'</div></div>';
+  if(r.mode) h+='<div class="mono" style="color:'+(r.mode==="exclusive"?"var(--amber)":"var(--dim)")+'">'+esc(r.mode)+'</div>';
+  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+span(live(r.prog.since))+" into the current step")+'</div>';
+  if(r.kind==="done") h+='<div class="prog mono" style="color:var(--green)">finished · the machine frees when the arbiter next looks</div>';
+  else if(r.kind==="fault") h+='<div class="prog mono" style="color:var(--red)">! unreaped · the next arbiter call drops it</div>';
+  return h+'</div>';
+}
+
+function render(){
+  var lightEl=el("light"), ageEl=el("age");
+  if(lastErr&&!snap){
+    el("body").innerHTML="";
+    el("err").textContent=lastErr;
+    ageEl.textContent=""; lightEl.style.background="var(--red)"; lightEl.className="dead";
+    return;
+  }
+  el("err").textContent=lastErr;
+  if(!snap){ ageEl.textContent="reading…"; return; }
+
+  var a=ageSec();
+  /* Three bands rather than two: "a bit behind" is normal for a 60 s publish interval plus a CDN
+     window, while "nothing for ten minutes" means the publisher on the PC has stopped and the board
+     on screen is fiction. Those deserve different colours. */
+  var band = a<180?"":a<600?"stale":"dead";
+  lightEl.className=band;
+  lightEl.style.background = band===""?"var(--green)":band==="stale"?"var(--amber)":"var(--red)";
+  ageEl.className=band;
+  ageEl.innerHTML = "snapshot <b>"+esc(span(a))+"</b> old"
+    + (band==="dead"?" — the PC has stopped publishing":band==="stale"?" — falling behind":"");
+
+  var h="";
+  (snap.wedges||[]).forEach(function(w){
+    h+='<div class="wedge"><div class="br">! lane '+esc(w.branch)+' with no bundle behind it</div>'
+     + '<div class="mono dim" style="margin-top:5px">'+esc(w.state==="running"?"held "+span(live(w.held)):"queued "+span(live(w.waited)))
+     + (w.stale?" · "+esc(w.stale):"")+'</div></div>';
+  });
+
+  var bs=snap.bundles||[];
+  var testing=bs.filter(function(b){return b.state==="testing"}).length;
+  var waiting=bs.filter(function(b){return b.state==="awaiting-lane"}).length;
+  h+='<h2>Merge queue <span>'+(bs.length?bs.length+" landing(s) · "+testing+" testing · "+waiting+" waiting for a lane":"nothing landing")
+   + (snap.abandoned?" · "+snap.abandoned+" abandoned, not shown":"")+'</span></h2>';
+  if(!bs.length) h+='<div class="dim">no landing in flight</div>';
+  bs.forEach(function(b){
+    h+='<div class="card" style="--stripe:var(--blue)">'
+     + '<div class="row2"><div class="br">'+esc(b.branch)+'</div>'
+     + '<div class="mono" style="color:var(--blue);white-space:nowrap">'+esc(b.state)+'</div></div>'
+     + '<div class="meta mono">'+esc(["bundle "+b.id,b.classify,b.commit].filter(Boolean).join(" · "))+'</div>'
+     + '<div class="meta mono">age '+esc(span(live(b.age)))+'</div>'
+     + '<div class="chips">'+(b.halves||[]).map(function(x){return chip(x.name,x.state,x.el)}).join("")+'</div>'
+     + (b.collides&&b.collides.length?'<div class="prog mono">collides with: '+esc(b.collides.join(", "))+'</div>':"")
+     + '</div>';
+  });
+
+  var run=snap.running||[], q=snap.queued||[], due=snap.due||[];
+  var done=run.filter(function(r){return r.kind==="done"}).length;
+  h+='<h2>Test queue <span>machine · '+(run.length-done)+' running'+(done?" · "+done+" finished":"")
+   + ' · '+q.length+' waiting'+(due.length?" · "+due.length+" not started":"")+'</span></h2>';
+  if(!run.length&&!q.length&&!due.length) h+='<div class="dim">machine idle</div>';
+  run.forEach(function(r){h+=runCard(r,false,false)});
+  q.forEach(function(r){h+=runCard(r,true,false)});
+  due.forEach(function(r){h+=runCard(r,false,true)});
+
+  h+='<h2>Build locks <span>'+(snap.builds||[]).map(function(b){
+      return b.held>=0 ? esc(b.name)+" held "+span(live(b.held))+(b.waiting?" (+"+b.waiting+" waiting)":"")
+                       : esc(b.name)+" idle"; }).join(" · ")+'</span></h2>';
+
+  h+='<h2>Recent history <span>'+(snap.history||[]).length+' most recent</span></h2><div class="hist">';
+  (snap.history||[]).forEach(function(r){
+    var c=r.ok?"var(--green)":"var(--red)";
+    h+='<div class="hrow"><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
+     + '<div class="hmeta mono">'
+     + '<span style="color:'+(r.type==="performance"?"var(--amber)":"var(--blue)")+'">'+esc(r.type)+'</span>'
+     + '<span style="color:'+c+'">'+(r.ok?"✓":"✗")+" "+esc(r.out)+'</span>'
+     + '<span class="grow"></span>'
+     + '<span>'+esc(r.ran==null?"--":span(r.ran))+'</span>'
+     + '<span class="dim">'+esc(span(live(r.ago)))+' ago</span>'
+     + '</div></div>';
+  });
+  h+='</div>';
+
+  h+='<h2>Legend</h2><div class="legend">'
+   + [["var(--blue)","running","a gate half or a test in flight right now"],
+      ["var(--green)","passed","finished and green — a run here has simply not been reaped yet"],
+      ["var(--amber)","waiting","queued for its turn, or holding what others need"],
+      ["var(--red)","attention","a failed half, a dead entry, a wedged lane"],
+      ["var(--dim)","quiet","not started yet, skipped, or supporting detail"]]
+      .map(function(l){return '<div class="lg"><i style="background:'+l[0]+'"></i><b style="color:'+l[0]+'">'+l[1]+'</b><span class="dim">'+l[2]+'</span></div>'}).join("")
+   + '<div class="lg"><i style="background:var(--green)"></i><b>top right</b><span class="dim">how old this snapshot is: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
+   + '</div>';
+
+  el("body").innerHTML=h;
+}
+
+/* ---- boot ------------------------------------------------------------------------------------ */
+function start(c){
+  cfg=c;
+  el("pair").classList.add("hide"); el("app").classList.remove("hide");
+  /* Paint the last snapshot immediately so a cold launch on a dead network shows the board it had
+     rather than an empty screen — clearly labelled with its age, which is the whole point. */
+  try{
+    var last=JSON.parse(localStorage.getItem(LS+"_last"));
+    if(last&&last.p){ snap=last.p; snapAt=last.at; render(); }
+  }catch(e){}
+  poll();
+  if(SELFTEST) return;   /* no timers: they would keep a headless run alive forever */
+  setInterval(poll,POLL_MS);
+  setInterval(render,1000);
+  document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible")poll(); });
+}
+
+el("pairGo").addEventListener("click",function(){
+  try{
+    var c=parsePair(el("pairIn").value);
+    if(!cfgSave(c)){ el("pairErr").textContent="this browser refuses to store the key (private mode?)"; return; }
+    el("pairErr").textContent=""; start(c);
+  }catch(e){ el("pairErr").textContent=e.message; }
+});
+el("repair").addEventListener("click",function(ev){
+  ev.preventDefault();
+  el("app").classList.add("hide"); el("pair").classList.remove("hide");
+  el("pairIn").value="";
+});
+
+(function(){
+  var c=cfgLoad();
+  if(c&&c.url&&c.key) start(c);
+  else { el("pair").classList.remove("hide"); if(SELFTEST) verdict(false,"not paired - seed localStorage first"); }
+})();
+</script>
+
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
+<script>
+(function(){
+  var BUILD="20260823205828";
+  if(BUILD.indexOf("APP_BUILD")>-1) return;
+  var busy=false;
+  function check(){
+    if(busy||document.visibilityState!=="visible"||!navigator.onLine) return;
+    busy=true;
+    fetch("./?_au="+Date.now(),{cache:"no-store"})
+      .then(function(r){ return r.ok? r.text():null; })
+      .then(function(t){
+        if(t){ var m=t.match(/var BUILD="([^"]+)"/);
+          if(m && m[1]!==BUILD && m[1].indexOf("APP_BUILD")<0){ location.reload(); return; } }
+        busy=false;
+      })
+      .catch(function(){ busy=false; });
+  }
+  document.addEventListener("visibilitychange",check);
+  window.addEventListener("pageshow",check);
+  window.addEventListener("focus",check);
+})();
+</script>
+</body>
+</html>
