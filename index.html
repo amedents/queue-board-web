@@ -427,7 +427,7 @@ function render(){
   lightEl.style.background = band===""?"var(--green)":band==="stale"?"var(--amber)":"var(--red)";
   postDot(dot);
   ageEl.className=band;
-  ageEl.innerHTML = "snapshot <b>"+esc(span(a))+"</b> old"
+  ageEl.innerHTML = "synchronised <b>"+esc(span(a))+"</b> ago"
     + (band==="dead"?" — the PC has stopped publishing":band==="stale"?" — falling behind":"");
 
   var h="";
@@ -498,7 +498,7 @@ function render(){
       ["var(--red)","failed","a failed half, a dead entry, a wedged lane"],
       ["var(--dim)","quiet","not started yet, skipped, or supporting detail"]]
       .map(function(l){return '<div class="lg"><i style="background:'+l[0]+'"></i><b style="color:'+l[0]+'">'+l[1]+'</b><span class="dim">'+l[2]+'</span></div>'}).join("")
-   + '<div class="lg"><i class="dot" style="background:var(--green)"></i><b>status circle</b><span class="dim">how old this snapshot is: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
+   + '<div class="lg"><i class="dot" style="background:var(--green)"></i><b>status circle</b><span class="dim">how long ago the PC last synchronised: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
    + '</div>';
 
   el("body").innerHTML=h;
@@ -652,7 +652,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260824000403";
+  var BUILD="20260824004402";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
