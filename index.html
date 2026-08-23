@@ -87,7 +87,14 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 .legend{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
 .lg{display:flex;align-items:flex-start;gap:9px;margin:7px 0}
 .lg i{width:5px;height:15px;border-radius:2px;flex:0 0 auto;margin-top:2px}
-.lg b{font-weight:600;font-size:13px;flex:0 0 72px}
+/* The status row's swatch IS the corner light - same 9px circle, same halo - not a bar
+   standing in for it. A legend swatch shaped unlike the thing it names teaches the wrong
+   shape, which is the one job a legend has. Kept in sync with #light by hand; they are four
+   lines apart for exactly that reason. */
+.lg i.dot{width:9px;height:9px;border-radius:50%;margin-top:5px;
+          box-shadow:0 0 0 5px rgba(63,185,80,.15)}
+/* Wide enough for the longest label so every row's text still starts on one column. */
+.lg b{font-weight:600;font-size:13px;flex:0 0 96px}
 .lg span{flex:1}
 
 button{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--border);
@@ -305,6 +312,10 @@ function runCard(r,queued,due){
   return h+'</div>';
 }
 
+/* Label only - the stored value stays "lane-held", which is the merge-queue store's contract and
+   what its selftest asserts on. Renaming the data to tidy a caption would be a migration. */
+function stateLabel(s){ return s==="lane-held" ? "lane held" : s; }
+
 function render(){
   var lightEl=el("light"), ageEl=el("age");
   if(lastErr&&!snap){
@@ -343,7 +354,7 @@ function render(){
   bs.forEach(function(b){
     h+='<div class="card" style="--stripe:var(--blue)">'
      + '<div class="row2"><div class="br">'+esc(b.branch)+'</div>'
-     + '<div class="mono" style="color:var(--blue);margin-left:auto">'+esc(b.state)+'</div></div>'
+     + '<div class="mono" style="color:var(--blue);margin-left:auto">'+esc(stateLabel(b.state))+'</div></div>'
      + '<div class="meta mono">'+esc(["bundle "+b.id,b.classify,b.commit].filter(Boolean).join(" · "))+'</div>'
      + '<div class="meta mono">age '+esc(span(live(b.age)))+'</div>'
      + '<div class="chips">'+(b.halves||[]).map(function(x){return chip(x.name,x.state,x.el)}).join("")+'</div>'
@@ -384,7 +395,7 @@ function render(){
       ["var(--red)","attention","a failed half, a dead entry, a wedged lane"],
       ["var(--dim)","quiet","not started yet, skipped, or supporting detail"]]
       .map(function(l){return '<div class="lg"><i style="background:'+l[0]+'"></i><b style="color:'+l[0]+'">'+l[1]+'</b><span class="dim">'+l[2]+'</span></div>'}).join("")
-   + '<div class="lg"><i style="background:var(--green)"></i><b>top right</b><span class="dim">how old this snapshot is: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
+   + '<div class="lg"><i class="dot" style="background:var(--green)"></i><b>status circle</b><span class="dim">how old this snapshot is: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
    + '</div>';
 
   el("body").innerHTML=h;
@@ -454,6 +465,44 @@ el("pairPaste").addEventListener("click",function(){
     el("pairIn").value=(t||"").trim(); el("pairErr").textContent="";
   },function(){ el("pairErr").textContent="paste was refused — long-press the box above instead"; });
 });
+/* Hidden layout diagnostic: ?diag=1, or five quick taps on the age line at the foot. It is not a
+   feature and deliberately not mentioned in the UI. It exists because the one failure that cannot be
+   reproduced on the PC is layout inside the App Hub's iframe on iOS - Chrome honours position:fixed
+   in an iframe and reports an iframe's intrinsic height as 150px, so neither symptom appears there -
+   and blind fixes have already been aimed at it twice. It reads geometry only: nothing about the
+   board, nothing about the key. */
+(function(){
+  var box=null, taps=0, t0=0;
+  function tick(){
+    if(!box) return;
+    var sc=el("scroll"), r=el("light").getBoundingClientRect(), de=document.documentElement;
+    var NL=String.fromCharCode(10);
+    box.textContent=[
+      "framed       "+(window.top!==window.self),
+      "innerH       "+window.innerHeight+"   docClientH  "+de.clientHeight,
+      "bodyScrollH  "+document.body.scrollHeight+"   bodyClientH "+document.body.clientHeight,
+      "win.scrollY  "+Math.round(window.scrollY)+"   de.scrollTop "+Math.round(de.scrollTop),
+      "scroll.top   "+(sc?sc.scrollTop:-1)+"   scrollH "+(sc?sc.scrollHeight:-1)
+        +"   clientH "+(sc?sc.clientHeight:-1),
+      "light.top    "+Math.round(r.top)+"   light.right "+Math.round(r.right),
+      "light.pos    "+getComputedStyle(el("light")).position
+    ].join(NL);
+    setTimeout(tick,250);
+  }
+  function toggle(){
+    if(box){ box.parentNode.removeChild(box); box=null; return; }
+    box=document.createElement("div");
+    box.style.cssText="position:absolute;left:8px;top:34px;right:8px;z-index:60;background:#000;"
+      +"color:#3FB950;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px;"
+      +"border:1px solid #3FB950;white-space:pre;border-radius:6px";
+    document.body.appendChild(box); tick();
+  }
+  el("age").addEventListener("click",function(){
+    var n=Date.now(); taps=(n-t0<900)?taps+1:1; t0=n;
+    if(taps>=5){ taps=0; toggle(); }
+  });
+  if(/[?&]diag/.test(location.search)) toggle();
+})();
 el("repair").addEventListener("click",function(ev){
   ev.preventDefault();
   el("app").classList.add("hide"); el("pair").classList.remove("hide");
@@ -491,7 +540,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823215423";
+  var BUILD="20260823220152";
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
