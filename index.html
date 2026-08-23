@@ -481,7 +481,7 @@ function render(){
    + [["var(--blue)","running","a gate half or a test in flight right now"],
       ["var(--green)","passed","finished and green — a run here has simply not been reaped yet"],
       ["var(--amber)","waiting","queued for its turn, or holding what others need"],
-      ["var(--red)","attention","a failed half, a dead entry, a wedged lane"],
+      ["var(--red)","failed","a failed half, a dead entry, a wedged lane"],
       ["var(--dim)","quiet","not started yet, skipped, or supporting detail"]]
       .map(function(l){return '<div class="lg"><i style="background:'+l[0]+'"></i><b style="color:'+l[0]+'">'+l[1]+'</b><span class="dim">'+l[2]+'</span></div>'}).join("")
    + '<div class="lg"><i class="dot" style="background:var(--green)"></i><b>status circle</b><span class="dim">how old this snapshot is: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
@@ -638,7 +638,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823225259";
+  var BUILD="20260823225553";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
