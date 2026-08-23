@@ -21,13 +21,24 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text)}
+/* THE PAGE DOES NOT SCROLL - #scroll does. This is what pins the status light, and it is deliberate
+   rather than tidiness: opened from the App Hub this document runs inside an iframe, and iOS treats
+   position:fixed inside an iframe as position:absolute, so a "fixed" light scrolls away with the
+   content. On iOS Safari a fixed element also drifts during rubber-band scrolling before snapping
+   back. Both failures are about tracking a moving page - so the page is not allowed to move, and the
+   light is positioned against a body that cannot scroll. No fixed, no sticky, nothing to track. */
+html,body{height:100%;overflow:hidden}
 body{
   font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
   -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;position:relative;
+}
+#scroll{
+  flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
   /* A phone is the design target, so nothing may extend past the viewport - but the same page opened
      on a desktop should not stretch a branch name across 2000 px either. */
-  max-width:720px;margin:0 auto;overflow-x:hidden;
+  width:100%;max-width:720px;margin:0 auto;
 }
 /* Flex items default to min-width:auto, which REFUSES to shrink below their content - that is what
    pushed the history durations, the progress line and the legend text off the right edge of a 393 px
@@ -41,8 +52,9 @@ h2{font:600 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter
 h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;color:var(--dim)}
 
 /* The status light, same idea as the desktop's corner light: inset equally from top and right, over
-   everything, never in the layout flow so nothing below it moves when it changes. */
-#light{position:fixed;top:calc(14px + env(safe-area-inset-top));right:14px;width:9px;height:9px;
+   everything, never in the layout flow so nothing below it moves when it changes. Absolute against
+   the body, which never scrolls - see the note above for why fixed cannot be used here. */
+#light{position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;width:9px;height:9px;
        border-radius:50%;z-index:40;box-shadow:0 0 0 5px rgba(63,185,80,.15)}
 #light.stale{box-shadow:0 0 0 5px rgba(210,153,34,.16)}
 #light.dead{box-shadow:0 0 0 5px rgba(248,81,73,.16)}
@@ -93,6 +105,8 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
 
 <div id="light"></div>
 
+<div id="scroll">
+
 <!-- Pairing. Shown until a key is stored; reachable afterwards from the footer. -->
 <section id="pair" class="hide">
   <h2>Queue Board</h2>
@@ -139,6 +153,8 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
     <br /><a href="#" id="repair" style="color:var(--dim)">re-pair this phone</a>
   </div>
 </main>
+
+</div><!-- /#scroll -->
 
 <script>
 "use strict";
@@ -477,7 +493,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823212839";
+  var BUILD="20260823214651";
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
