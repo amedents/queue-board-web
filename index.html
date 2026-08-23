@@ -238,10 +238,14 @@ function span(s){
   return h+"h"+(m<10?"0":"")+m+"m";
 }
 
-/* "N ago" answers "recently, or a while back?" - a seconds digit there changes every second and
-   answers a question nobody asked, while making the column twitch. Durations keep their seconds,
-   because there the exact number is the point. */
-function ago(s){
+/* EVERY STILL-RUNNING CLOCK reads through here: an age, a wait, a hold, an elapsed. They all answer
+   "recently, or a while back?", and a seconds digit there changes every second - answering a question
+   nobody asked while making the column twitch. These tick client-side between polls, so the twitch is
+   continuous rather than once per refresh.
+   FINISHED DURATIONS KEEP THEIR SECONDS and stay on span(): how long a run took, how long a step took,
+   how long a landing queued before starting. There the exact number is the point and never changes.
+   Kept identical to the desktop's Fmt.Coarse so the two apps cannot drift apart. */
+function coarse(s){
   if(s==null||s<0)return "--";
   s=Math.round(s);
   if(s<60)return "<1m";
@@ -352,7 +356,7 @@ function chip(h){
   /* The desktop says "failed (3)". The count is the difference between "something went wrong" and
      "three things went wrong", and it was being dropped on the way to the phone. */
   var label = state==="failed" && (h.fails|0)>0 ? "failed ("+(h.fails|0)+")" : state;
-  var txt=name+" "+label+(state==="running"&&elapsed?" "+span(live(elapsed)):"");
+  var txt=name+" "+label+(state==="running"&&elapsed?" "+coarse(live(elapsed)):"");
   return '<span class="chip" style="color:'+c+';border-color:'+c+'55;background:'+c+'14">'+esc(txt)+'</span>';
 }
 
@@ -360,8 +364,8 @@ function runCard(r,queued,due){
   var stripe = due?"var(--dim)" : r.kind==="fault"?"var(--red)" : r.kind==="done"?"var(--green)" :
                queued?"var(--amber)":"var(--blue)";
   var right = due ? "not started"
-            : queued ? "waiting "+span(live(r.waited))
-            : span(live(r.held));
+            : queued ? "waiting "+coarse(live(r.waited))
+            : coarse(live(r.held));
   var meta = due ? "the gate still owes this half · no ticket claimed yet"
                  : [r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
   var h='<div class="card" style="--stripe:'+stripe+'">'
@@ -369,7 +373,7 @@ function runCard(r,queued,due){
       + '<div class="row2"><div class="mono dim">'+esc(meta)+'</div>'
       + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';margin-left:auto">'+esc(right)+'</div></div>';
   if(r.mode) h+='<div class="mono" style="color:'+(r.mode==="exclusive"?"var(--amber)":"var(--dim)")+'">'+esc(r.mode)+'</div>';
-  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+span(live(r.prog.since))+" into the current step")+'</div>';
+  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+coarse(live(r.prog.since))+" into the current step")+'</div>';
   /* The desktop paints this in red beside the progress line; on a phone it gets its own row rather
      than competing for width. Without it the board looked identical whether a run was sailing through
      or failing, which is the one distinction the queue exists to show. */
@@ -425,7 +429,7 @@ function render(){
   var h="";
   (snap.wedges||[]).forEach(function(w){
     h+='<div class="wedge"><div class="br">! lane '+esc(w.branch)+' with no bundle behind it</div>'
-     + '<div class="mono dim" style="margin-top:5px">'+esc(w.state==="running"?"held "+span(live(w.held)):"queued "+span(live(w.waited)))
+     + '<div class="mono dim" style="margin-top:5px">'+esc(w.state==="running"?"held "+coarse(live(w.held)):"queued "+coarse(live(w.waited)))
      + (w.stale?" · "+esc(w.stale):"")+'</div></div>';
   });
 
@@ -448,10 +452,10 @@ function render(){
      + '<div class="row2"><div class="br">'+esc(b.branch)+'</div>'
      + '<div class="mono" style="color:'+acc+';margin-left:auto">'+esc(stateLabel(b.state))+'</div></div>'
      + '<div class="meta mono">'+esc(["bundle "+b.id,b.classify,b.commit].filter(Boolean).join(" · "))+'</div>'
-     + '<div class="meta mono">age '+esc(span(live(b.age)))+'</div>'
+     + '<div class="meta mono">age '+esc(coarse(live(b.age)))+'</div>'
      + (b.lane?'<div class="meta mono">lane '+esc(b.lane)+'</div>':"")
      + '<div class="chips">'+(b.halves||[]).map(chip).join("")+'</div>'
-     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)+" · "+span(live(runh.prog.since))+" into the current step")+'</div>':"")
+     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)+" · "+coarse(live(runh.prog.since))+" into the current step")+'</div>':"")
      + (failed?'<div class="prog mono" style="color:var(--red)">'+esc(String(failed.detail).replace(/\s+/g," ").trim())+'</div>':"")
      + (b.collides&&b.collides.length?'<div class="prog mono">collides with: '+esc(b.collides.join(", "))+'</div>':"")
      + '</div>';
@@ -467,10 +471,10 @@ function render(){
   due.forEach(function(r){h+=runCard(r,false,true)});
 
   h+='<h2>Build locks <span>'+(snap.builds||[]).map(function(b){
-      return b.held>=0 ? esc(b.name)+" held "+span(live(b.held))+(b.waiting?" (+"+b.waiting+" waiting)":"")
+      return b.held>=0 ? esc(b.name)+" held "+coarse(live(b.held))+(b.waiting?" (+"+b.waiting+" waiting)":"")
                        : esc(b.name)+" idle"; }).join(" · ")+'</span></h2>';
 
-  h+='<h2>Recent history <span>'+(snap.history||[]).length+' most recent</span></h2><div class="hist">';
+  h+='<h2>Recent history</h2><div class="hist">';
   (snap.history||[]).forEach(function(r){
     var c=r.ok?"var(--green)":"var(--red)";
     h+='<div class="hrow"><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
@@ -478,7 +482,7 @@ function render(){
      + '<span style="color:'+(r.type==="performance"?"var(--amber)":"var(--blue)")+'">'+esc(r.type)+'</span>'
      + '<span style="color:'+c+'">'+(r.ok?"✓":"✗")+" "+esc(r.out)+'</span>'
      + '<span class="nums"><span>'+esc(r.ran==null?"--":span(r.ran))+'</span>'
-     + '<span class="dim">'+esc(ago(live(r.ago)))+' ago</span></span>'
+     + '<span class="dim">'+esc(coarse(live(r.ago)))+' ago</span></span>'
      + '</div></div>';
   });
   h+='</div>';
@@ -644,7 +648,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823225751";
+  var BUILD="20260823235255";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
