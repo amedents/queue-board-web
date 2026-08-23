@@ -102,8 +102,31 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
     is stored only on this phone and is never sent anywhere.
   </p>
   <textarea id="pairIn" placeholder="qb1...." autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-  <div class="pad"><button class="p" id="pairGo">Pair this phone</button></div>
+  <div class="pad"><button class="p" id="pairGo">Pair this phone</button>
+    <button id="pairPaste">Paste</button></div>
   <div id="pairErr" style="color:var(--red)"></div>
+</section>
+
+<!-- Shown when this page is opened from the pairing QR. It deliberately does NOT pair on arrival.
+     A home-screen ("standalone") web app has its OWN localStorage container, separate from Safari's,
+     so pairing here would key a copy of the board that is never the one being opened - it would look
+     like it worked and change nothing in the App Hub. The clipboard is the only bridge between the
+     two containers, so this screen exists to load it. -->
+<section id="handoff" class="hide">
+  <h2>Pairing code</h2>
+  <p class="dim" style="margin:0 0 12px">
+    This is Safari, and your board lives in the <b>App Hub</b> on your home screen. That app keeps its
+    own separate storage, so pairing here would not reach it. Copy the code, then paste it there.
+  </p>
+  <textarea id="hoCode" readonly autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+  <div class="pad"><button class="p" id="hoCopy">Copy code</button></div>
+  <div id="hoMsg" class="dim"></div>
+  <p class="dim" style="margin:12px 0 0">
+    Then open <b>App Hub</b> &rarr; <b>Queue Board</b> &rarr; <b>Paste</b> &rarr; <b>Pair this phone</b>.
+  </p>
+  <p style="margin:14px 0 0">
+    <a href="#" id="hoHere" style="color:var(--dim)">pair this browser instead</a>
+  </p>
 </section>
 
 <main id="app" class="hide">
@@ -377,6 +400,46 @@ el("pairGo").addEventListener("click",function(){
     el("pairErr").textContent=""; start(c);
   }catch(e){ el("pairErr").textContent=e.message; }
 });
+function handoffMsg(t){ el("hoMsg").textContent=t; }
+function showHandoff(code){
+  el("hoCode").value=code;
+  el("pair").classList.add("hide");
+  el("handoff").classList.remove("hide");
+}
+el("hoCopy").addEventListener("click",function(){
+  var t=el("hoCode");
+  var won="copied — now open App Hub → Queue Board and paste";
+  function legacy(){
+    /* execCommand needs the field focused and selected first; readonly does not block it. Kept as the
+       fallback because navigator.clipboard is unavailable on a page served without TLS and in some
+       embedded webviews, and this screen has exactly one job. */
+    t.focus(); t.setSelectionRange(0,t.value.length);
+    var ok=false; try{ ok=document.execCommand("copy"); }catch(e){}
+    handoffMsg(ok? won : "could not copy — long-press the code above, then Select All → Copy");
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t.value).then(function(){ handoffMsg(won); },legacy);
+  } else legacy();
+});
+el("hoHere").addEventListener("click",function(ev){
+  ev.preventDefault();
+  try{
+    var c=parsePair(el("hoCode").value);
+    if(cfgSave(c)){ el("handoff").classList.add("hide"); start(c); return; }
+    handoffMsg("this browser refuses to store the key (private mode?)");
+  }catch(e){ handoffMsg(e.message); }
+});
+el("pairPaste").addEventListener("click",function(){
+  /* One tap instead of long-press → Paste, which is the fiddliest step of the whole hand-off. iOS
+     shows its own paste confirmation, so this cannot read the clipboard behind the user's back. */
+  if(!(navigator.clipboard&&navigator.clipboard.readText)){
+    el("pairErr").textContent="this browser has no paste button — long-press the box above instead";
+    return;
+  }
+  navigator.clipboard.readText().then(function(t){
+    el("pairIn").value=(t||"").trim(); el("pairErr").textContent="";
+  },function(){ el("pairErr").textContent="paste was refused — long-press the box above instead"; });
+});
 el("repair").addEventListener("click",function(ev){
   ev.preventDefault();
   el("app").classList.add("hide"); el("pair").classList.remove("hide");
@@ -384,6 +447,27 @@ el("repair").addEventListener("click",function(ev){
 });
 
 (function(){
+  /* A pairing string in the URL FRAGMENT is how the QR reaches this page: the camera opens Safari
+     here carrying the code. The fragment is the only part of a URL a browser never sends to the
+     server, which is what makes it safe to carry a key at all - but it WOULD survive in the address
+     bar, in history and in a screenshot, so it is stripped immediately whether or not anything else
+     succeeds. Arriving with a code does NOT pair: see the #handoff section for why Safari is the
+     wrong container. Checked BEFORE the stored config so a re-pair after a key rotation needs
+     nothing cleared first. */
+  var frag=location.hash||"";
+  if(frag.indexOf("#qb1.")===0){
+    var code=frag.slice(1), pc=null, msg="";
+    try{ pc=parsePair(code); }catch(e){ msg=e.message; }
+    /* Best-effort only, and guarded on purpose: replaceState throws on an opaque origin (a file://
+       copy, some embedded webviews), and a cosmetic tidy-up of the address bar must never be able to
+       stop the phone pairing. */
+    try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+    if(pc){ showHandoff(code); if(SELFTEST) verdict(true,"handoff shown for a valid pairing code"); return; }
+    el("pairErr").textContent=msg;
+    el("pair").classList.remove("hide");
+    if(SELFTEST) verdict(false,"hash pairing rejected: "+msg);
+    return;
+  }
   var c=cfgLoad();
   if(c&&c.url&&c.key) start(c);
   else { el("pair").classList.remove("hide"); if(SELFTEST) verdict(false,"not paired - seed localStorage first"); }
@@ -393,7 +477,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823210341";
+  var BUILD="20260823212839";
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
