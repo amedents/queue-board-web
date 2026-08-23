@@ -29,14 +29,14 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--text)}
    content. On iOS Safari a fixed element also drifts during rubber-band scrolling before snapping
    back. Both failures are about tracking a moving page - so the page is not allowed to move, and the
    light is positioned against a body that cannot scroll. No fixed, no sticky, nothing to track. */
-html,body{height:100%;overflow:hidden}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 body{
   font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;
   display:flex;flex-direction:column;position:relative;
 }
 #scroll{
-  flex:1;overflow-y:auto;overflow-x:hidden;
+  flex:1;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;
   padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
   /* A phone is the design target, so nothing may extend past the viewport - but the same page opened
      on a desktop should not stretch a branch name across 2000 px either. */
@@ -485,11 +485,14 @@ el("pairPaste").addEventListener("click",function(){
    and blind fixes have already been aimed at it twice. It reads geometry only: nothing about the
    board, nothing about the key. */
 (function(){
-  var box=null, taps=0, t0=0;
+  var box=null, taps=0, t0=0, lo=1e9, hi=-1e9, vlo=1e9, vhi=-1e9;
   function tick(){
     if(!box) return;
     var sc=el("scroll"), r=el("light").getBoundingClientRect(), de=document.documentElement;
     var NL=String.fromCharCode(10);
+    var vv=window.visualViewport;
+    if(r.top<lo) lo=r.top; if(r.top>hi) hi=r.top;
+    if(vv){ if(vv.offsetTop<vlo) vlo=vv.offsetTop; if(vv.offsetTop>vhi) vhi=vv.offsetTop; }
     box.textContent=[
       "framed       "+(window.top!==window.self),
       "innerH       "+window.innerHeight+"   docClientH  "+de.clientHeight,
@@ -499,6 +502,10 @@ el("pairPaste").addEventListener("click",function(){
         +"   clientH "+(sc?sc.clientHeight:-1),
       "light.top    "+Math.round(r.top)+"   light.right "+Math.round(r.right),
       "light.pos    "+getComputedStyle(el("light")).position,
+      "light.topMIN "+Math.round(lo)+"   light.topMAX "+Math.round(hi),
+      "vv.offsetTop "+(vv?Math.round(vv.offsetTop):"n/a")
+        +"   MIN "+(vlo<1e9?Math.round(vlo):"n/a")+"   MAX "+(vhi>-1e9?Math.round(vhi):"n/a"),
+      "vv.height    "+(vv?Math.round(vv.height):"n/a")+"   vv.scale "+(vv?vv.scale:"n/a"),
       "framedClass  "+document.documentElement.className,
       "build        "+(window.__QB_BUILD__||"unstamped")
     ].join(NL);
@@ -555,7 +562,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823221755";
+  var BUILD="20260823222049";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
