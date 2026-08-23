@@ -20,7 +20,13 @@ catch(e){document.documentElement.className="framed";}</script>
 :root{
   --bg:#0F1115; --card:#171A21; --border:#262B36; --text:#E6E9EF; --dim:#8B93A7;
   --blue:#4A9EFF; --green:#3FB950; --red:#F85149; --amber:#D29922; --purple:#A371F7;
+  --padtop:max(10px,env(safe-area-inset-top));
 }
+/* Framed inside the App Hub the parent's bar has already cleared the notch above this document, and
+   iOS still reports the device inset to the frame - applying it again would push the app down a second
+   time by the height of the Dynamic Island. Overriding the VARIABLE rather than the two rules that use
+   it keeps the sticky dock's cancelling margin in step automatically. */
+html.framed{ --padtop:10px; }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text)}
 /* THE PAGE DOES NOT SCROLL - #scroll does. This is what pins the status light, and it is deliberate
@@ -37,7 +43,7 @@ body{
 }
 #scroll{
   flex:1;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;
-  padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
+  padding:var(--padtop) 12px calc(28px + env(safe-area-inset-bottom));
   /* A phone is the design target, so nothing may extend past the viewport - but the same page opened
      on a desktop should not stretch a branch name across 2000 px either. */
   width:100%;max-width:720px;margin:0 auto;
@@ -61,9 +67,23 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
    the notch above this document, so applying the inset again pushes everything down a second time by
    the height of the Dynamic Island - which is where the status light was landing instead of the
    corner. Standalone or in Safari the inset is real and still applies. */
-html.framed #scroll{padding-top:10px}
-html.framed #light{top:14px}
-#light{position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;width:9px;height:9px;
+/* THE LIGHT LIVES INSIDE THE SCROLLER, as a zero-height sticky row - not as an absolutely
+   positioned sibling of it. iOS composites a scrolling container on its own layer, and an element
+   outside that layer is repainted a frame or two behind the gesture: it visibly slides and snaps back
+   while its layout position never changes at all. That is not a theory about this page, it is what the
+   on-device diagnostic reported - light.topMIN == light.topMAX == 14 across a 1764px scroll, and
+   visualViewport.offsetTop pinned at 0 the whole time. Nothing was moving in any coordinate space the
+   page can read, so the movement was never positional. A sticky child is placed by the SAME compositor
+   that runs the scroll, so there is no second layer to fall behind.
+   The negative margin cancels the scroller's own top padding, so the dock starts flush with the
+   scrollport and its stuck position is identical to its resting one - otherwise the light would sit
+   one padding lower until the first scroll and then jump. */
+#lightdock{position:sticky;top:0;height:0;z-index:40;pointer-events:none;margin:0 -12px}
+/* top:0 on the dock resolves to the scroller's CONTENT box, not its scrollport - a sticky element is
+   clamped to its containing block - so the dock rests one --padtop below the viewport edge. Subtracting
+   it here puts the light back on the same 14px it sat on as an absolute sibling, in framed and
+   unframed alike, and the two stay in step because both read the one variable. */
+#light{position:absolute;top:calc(14px - var(--padtop));right:14px;width:9px;height:9px;
        border-radius:50%;z-index:40;box-shadow:0 0 0 5px rgba(63,185,80,.15);
        /* Own compositing layer: keeps the light painted against the viewport rather than in step with
           the scrolling container beside it. translateZ(0) rather than will-change, which would make it
@@ -123,9 +143,9 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
 </head>
 <body>
 
-<div id="light"></div>
-
 <div id="scroll">
+
+<div id="lightdock"><div id="light"></div></div>
 
 <!-- Pairing. Shown until a key is stored; reachable afterwards from the footer. -->
 <section id="pair" class="hide">
@@ -562,7 +582,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823222049";
+  var BUILD="20260823222802";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
