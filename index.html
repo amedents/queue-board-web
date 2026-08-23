@@ -59,7 +59,7 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 #light.stale{box-shadow:0 0 0 5px rgba(210,153,34,.16)}
 #light.dead{box-shadow:0 0 0 5px rgba(248,81,73,.16)}
 
-#age{font-size:12.5px;color:var(--dim);padding-right:26px;min-height:18px}
+#age{font-size:12.5px;color:var(--dim);min-height:18px;margin-bottom:6px}
 #age b{font-weight:600;color:var(--text)}
 #age.stale b{color:var(--amber)} #age.dead b{color:var(--red)}
 
@@ -144,13 +144,11 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
 </section>
 
 <main id="app" class="hide">
-  <div id="age">reading…</div>
   <div id="err"></div>
   <div id="body"></div>
   <div class="foot">
-    Snapshot, not a live feed — the PC encrypts a projection of the board and pushes it out; nothing
-    listens on the PC and GitHub stores bytes it cannot read.
-    <br /><a href="#" id="repair" style="color:var(--dim)">re-pair this phone</a>
+    <div id="age">reading…</div>
+    <a href="#" id="repair" style="color:var(--dim)">disconnect the session</a>
   </div>
 </main>
 
@@ -355,9 +353,9 @@ function render(){
 
   var run=snap.running||[], q=snap.queued||[], due=snap.due||[];
   var done=run.filter(function(r){return r.kind==="done"}).length;
-  h+='<h2>Test queue <span>machine · '+(run.length-done)+' running'+(done?" · "+done+" finished":"")
+  h+='<h2>Test queue <span>'+(run.length-done)+' running'+(done?" · "+done+" finished":"")
    + ' · '+q.length+' waiting'+(due.length?" · "+due.length+" not started":"")+'</span></h2>';
-  if(!run.length&&!q.length&&!due.length) h+='<div class="dim">machine idle</div>';
+  if(!run.length&&!q.length&&!due.length) h+='<div class="dim">idle</div>';
   run.forEach(function(r){h+=runCard(r,false,false)});
   q.forEach(function(r){h+=runCard(r,true,false)});
   due.forEach(function(r){h+=runCard(r,false,true)});
@@ -493,7 +491,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823214651";
+  var BUILD="20260823215423";
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
