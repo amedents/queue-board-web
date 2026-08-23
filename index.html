@@ -79,6 +79,11 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
    scrollport and its stuck position is identical to its resting one - otherwise the light would sit
    one padding lower until the first scroll and then jump. */
 #lightdock{position:sticky;top:0;height:0;z-index:40;pointer-events:none;margin:0 -12px}
+/* Framed, the Hub paints the dot in its own bar instead. Nothing this document can do keeps an element
+   still while iOS scrolls a framed page - measured: the light never moved in layout or visual-viewport
+   coordinates through a 1764px scroll and was still visibly sliding - so the light stops being ours to
+   place and becomes something we report. */
+html.framed #lightdock{display:none}
 /* top:0 on the dock resolves to the scroller's CONTENT box, not its scrollport - a sticky element is
    clamped to its containing block - so the dock rests one --padtop below the viewport edge. Subtracting
    it here puts the light back on the same 14px it sat on as an absolute sibling, in framed and
@@ -227,6 +232,21 @@ function span(s){
   return h+"h"+(m<10?"0":"")+m+"m";
 }
 
+/* "N ago" answers "recently, or a while back?" - a seconds digit there changes every second and
+   answers a question nobody asked, while making the column twitch. Durations keep their seconds,
+   because there the exact number is the point. */
+function ago(s){
+  if(s==null||s<0)return "--";
+  s=Math.round(s);
+  if(s<60)return "<1m";
+  var m=Math.floor(s/60);
+  if(m<60)return m+"m";
+  var h=Math.floor(m/60); m=m%60;
+  if(h<24)return h+"h"+(m<10?"0":"")+m+"m";
+  var d=Math.floor(h/24); h=h%24;
+  return d+"d"+(h<10?"0":"")+h+"h";
+}
+
 /* ---- crypto --------------------------------------------------------------------------------- */
 function b64bytes(b64){
   var bin=atob(b64), a=new Uint8Array(bin.length);
@@ -340,8 +360,15 @@ function runCard(r,queued,due){
       + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';margin-left:auto">'+esc(right)+'</div></div>';
   if(r.mode) h+='<div class="mono" style="color:'+(r.mode==="exclusive"?"var(--amber)":"var(--dim)")+'">'+esc(r.mode)+'</div>';
   if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+span(live(r.prog.since))+" into the current step")+'</div>';
+  /* The desktop paints this in red beside the progress line; on a phone it gets its own row rather
+     than competing for width. Without it the board looked identical whether a run was sailing through
+     or failing, which is the one distinction the queue exists to show. */
+  if(r.prog&&!due&&((r.prog.fails|0)>0||(r.prog.blocked|0)>0))
+    h+='<div class="prog mono" style="color:var(--red)">'
+      +esc((r.prog.fails|0)+" failure(s), "+(r.prog.blocked|0)+" blocked")+'</div>';
   if(r.kind==="done") h+='<div class="prog mono" style="color:var(--green)">finished · the machine frees when the arbiter next looks</div>';
-  else if(r.kind==="fault") h+='<div class="prog mono" style="color:var(--red)">! unreaped · the next arbiter call drops it</div>';
+  else if(r.kind==="fault") h+='<div class="prog mono" style="color:var(--red)">'
+      +esc("! unreaped"+(r.stale?" · "+r.stale:"")+" · the next arbiter call drops it")+'</div>';
   return h+'</div>';
 }
 
@@ -349,12 +376,24 @@ function runCard(r,queued,due){
    what its selftest asserts on. Renaming the data to tidy a caption would be a migration. */
 function stateLabel(s){ return s==="lane-held" ? "lane held" : s; }
 
+var FRAMED=document.documentElement.classList.contains("framed");
+var lastDot=null;
+/* Hand the status colour to the Hub, which owns the only chrome that does not scroll. Sent only when
+   it CHANGES: the render timer runs every second and a message per second is pure noise on a bus the
+   parent has to filter. */
+function postDot(col){
+  if(!FRAMED||col===lastDot) return;
+  lastDot=col;
+  try{ parent.postMessage({type:"app-status-dot",color:col},location.origin); }catch(e){}
+}
+
 function render(){
   var lightEl=el("light"), ageEl=el("age");
   if(lastErr&&!snap){
     el("body").innerHTML="";
     el("err").textContent=lastErr;
     ageEl.textContent=""; lightEl.style.background="var(--red)"; lightEl.className="dead";
+    postDot("#F85149");
     return;
   }
   el("err").textContent=lastErr;
@@ -366,7 +405,9 @@ function render(){
      on screen is fiction. Those deserve different colours. */
   var band = a<180?"":a<600?"stale":"dead";
   lightEl.className=band;
+  var dot = band===""?"#3FB950":band==="stale"?"#D29922":"#F85149";
   lightEl.style.background = band===""?"var(--green)":band==="stale"?"var(--amber)":"var(--red)";
+  postDot(dot);
   ageEl.className=band;
   ageEl.innerHTML = "snapshot <b>"+esc(span(a))+"</b> old"
     + (band==="dead"?" — the PC has stopped publishing":band==="stale"?" — falling behind":"");
@@ -416,7 +457,7 @@ function render(){
      + '<span style="color:'+(r.type==="performance"?"var(--amber)":"var(--blue)")+'">'+esc(r.type)+'</span>'
      + '<span style="color:'+c+'">'+(r.ok?"✓":"✗")+" "+esc(r.out)+'</span>'
      + '<span class="nums"><span>'+esc(r.ran==null?"--":span(r.ran))+'</span>'
-     + '<span class="dim">'+esc(span(live(r.ago)))+' ago</span></span>'
+     + '<span class="dim">'+esc(ago(live(r.ago)))+' ago</span></span>'
      + '</div></div>';
   });
   h+='</div>';
@@ -582,7 +623,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823222802";
+  var BUILD="20260823223804";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
