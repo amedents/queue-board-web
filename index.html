@@ -202,7 +202,13 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
 <script>
 "use strict";
 var LS="queue_board_web_v1";
-var POLL_MS=30000;
+/* 10s, and that is the floor worth having rather than the floor that exists. Measured on the PC:
+   a publish takes 7.6s and the gist raw CDN takes a further ~53.6s to serve it even when the URL
+   carries a unique cache-buster - it keys on path, not query. So the transport, not this timer, sets
+   how fresh the board can be, and polling faster than ~10s only spends battery re-fetching bytes that
+   cannot have changed. Going the other way does cost something real: at 30s the poll was adding its
+   own delay on top of a ~60s transport, which is the part this removes. */
+var POLL_MS=10000;
 /* ?selftest=1 runs ONE fetch-decrypt-render, arms no timers, and writes a verdict into the DOM. It
    exists because the live path is the one that can silently rot - a payload the PC encrypts that this
    browser cannot decrypt looks identical to a quiet machine - and because the 1 s render timer keeps
@@ -638,7 +644,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823225553";
+  var BUILD="20260823225751";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
