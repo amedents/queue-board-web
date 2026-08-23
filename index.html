@@ -155,7 +155,7 @@ textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);bor
   <div id="body"></div>
   <div class="foot">
     <div id="age">reading…</div>
-    <a href="#" id="repair" style="color:var(--dim)">disconnect the session</a>
+    <a href="#" id="repair" style="color:var(--dim)">disconnect</a>
   </div>
 </main>
 
@@ -540,7 +540,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823220152";
+  var BUILD="20260823220727";
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
