@@ -25,7 +25,15 @@ body{
   font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
   -webkit-font-smoothing:antialiased;
+  /* A phone is the design target, so nothing may extend past the viewport - but the same page opened
+     on a desktop should not stretch a branch name across 2000 px either. */
+  max-width:720px;margin:0 auto;overflow-x:hidden;
 }
+/* Flex items default to min-width:auto, which REFUSES to shrink below their content - that is what
+   pushed the history durations, the progress line and the legend text off the right edge of a 393 px
+   screen. Every flex child here is allowed to shrink and wrap instead. */
+.row2>*,.hmeta>*,.lg>span{min-width:0}
+.mono,.prog,.lg span{overflow-wrap:anywhere}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
 .dim{color:var(--dim)}
 h2{font:600 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.09em;
@@ -48,7 +56,7 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--stripe,var(--blue))}
 .br{font-weight:600;font-size:14.5px;word-break:break-all;line-height:1.3}
 .meta{margin-top:4px;color:var(--dim)}
-.row2{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:5px}
+.row2{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:5px;flex-wrap:wrap}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .chip{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;padding:3px 8px;border-radius:5px;
       border:1px solid;white-space:nowrap}
@@ -58,7 +66,7 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 .hrow{padding:9px 0;border-bottom:1px solid var(--border)}
 .hrow:last-child{border-bottom:0}
 .hmeta{display:flex;gap:9px;align-items:baseline;margin-top:3px;flex-wrap:wrap}
-.hmeta .grow{flex:1}
+.hmeta .nums{margin-left:auto;display:flex;gap:9px;white-space:nowrap}
 
 .wedge{background:rgba(248,81,73,.11);border:1px solid rgba(248,81,73,.45);border-radius:9px;
        padding:11px 13px;margin:8px 0}
@@ -67,7 +75,8 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 .legend{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
 .lg{display:flex;align-items:flex-start;gap:9px;margin:7px 0}
 .lg i{width:5px;height:15px;border-radius:2px;flex:0 0 auto;margin-top:2px}
-.lg b{font-weight:600;font-size:13px;flex:0 0 74px}
+.lg b{font-weight:600;font-size:13px;flex:0 0 72px}
+.lg span{flex:1}
 
 button{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--border);
        border-radius:8px;padding:11px 15px;cursor:pointer}
@@ -195,6 +204,19 @@ function poll(){
         if(!("history" in p)||!("running" in p)||!("builds" in p)) bad.push("payload is missing sections");
         if(Math.abs(ageSec())>86400) bad.push("snapshot age is implausible: "+Math.round(ageSec())+"s");
         if(document.getElementById("body").innerHTML.length<200) bad.push("nothing rendered");
+        /* The phone is the design target, so anything wider than the viewport is a defect, not a
+           cosmetic nit - it silently eats the right-hand column, which is where every duration lives.
+           body{overflow-x:hidden} HIDES this rather than fixing it, so the check measures elements
+           against the viewport instead of trusting that the page looks contained. */
+        var vw=document.documentElement.clientWidth, worst=null, worstW=vw;
+        var all=document.querySelectorAll("#body *, #body");
+        for(var i=0;i<all.length;i++){
+          var r=all[i].getBoundingClientRect();
+          if(r.right>worstW+1){ worstW=r.right; worst=all[i]; }
+        }
+        if(worst) bad.push("overflows the viewport by "+Math.round(worstW-vw)+"px: <"
+          +worst.tagName.toLowerCase()+" class='"+worst.className+"'> “"
+          +(worst.textContent||"").trim().slice(0,40)+"”");
         verdict(bad.length===0, bad.length? bad.join(" | ")
           : "decrypted "+JSON.stringify(p).length+"B, age "+Math.round(ageSec())+"s, "
             +(p.history||[]).length+" history rows, "+(p.bundles||[]).length+" bundles");
@@ -238,7 +260,7 @@ function runCard(r,queued,due){
   var h='<div class="card" style="--stripe:'+stripe+'">'
       + '<div class="br">'+esc(r.label)+'</div>'
       + '<div class="row2"><div class="mono dim">'+esc(meta)+'</div>'
-      + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';white-space:nowrap">'+esc(right)+'</div></div>';
+      + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';margin-left:auto">'+esc(right)+'</div></div>';
   if(r.mode) h+='<div class="mono" style="color:'+(r.mode==="exclusive"?"var(--amber)":"var(--dim)")+'">'+esc(r.mode)+'</div>';
   if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+span(live(r.prog.since))+" into the current step")+'</div>';
   if(r.kind==="done") h+='<div class="prog mono" style="color:var(--green)">finished · the machine frees when the arbiter next looks</div>';
@@ -284,7 +306,7 @@ function render(){
   bs.forEach(function(b){
     h+='<div class="card" style="--stripe:var(--blue)">'
      + '<div class="row2"><div class="br">'+esc(b.branch)+'</div>'
-     + '<div class="mono" style="color:var(--blue);white-space:nowrap">'+esc(b.state)+'</div></div>'
+     + '<div class="mono" style="color:var(--blue);margin-left:auto">'+esc(b.state)+'</div></div>'
      + '<div class="meta mono">'+esc(["bundle "+b.id,b.classify,b.commit].filter(Boolean).join(" · "))+'</div>'
      + '<div class="meta mono">age '+esc(span(live(b.age)))+'</div>'
      + '<div class="chips">'+(b.halves||[]).map(function(x){return chip(x.name,x.state,x.el)}).join("")+'</div>'
@@ -312,9 +334,8 @@ function render(){
      + '<div class="hmeta mono">'
      + '<span style="color:'+(r.type==="performance"?"var(--amber)":"var(--blue)")+'">'+esc(r.type)+'</span>'
      + '<span style="color:'+c+'">'+(r.ok?"✓":"✗")+" "+esc(r.out)+'</span>'
-     + '<span class="grow"></span>'
-     + '<span>'+esc(r.ran==null?"--":span(r.ran))+'</span>'
-     + '<span class="dim">'+esc(span(live(r.ago)))+' ago</span>'
+     + '<span class="nums"><span>'+esc(r.ran==null?"--":span(r.ran))+'</span>'
+     + '<span class="dim">'+esc(span(live(r.ago)))+' ago</span></span>'
      + '</div></div>';
   });
   h+='</div>';
@@ -372,7 +393,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823205828";
+  var BUILD="20260823210341";
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
