@@ -36,7 +36,7 @@ body{
   display:flex;flex-direction:column;position:relative;
 }
 #scroll{
-  flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  flex:1;overflow-y:auto;overflow-x:hidden;
   padding:max(10px,env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
   /* A phone is the design target, so nothing may extend past the viewport - but the same page opened
      on a desktop should not stretch a branch name across 2000 px either. */
@@ -64,7 +64,11 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 html.framed #scroll{padding-top:10px}
 html.framed #light{top:14px}
 #light{position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;width:9px;height:9px;
-       border-radius:50%;z-index:40;box-shadow:0 0 0 5px rgba(63,185,80,.15)}
+       border-radius:50%;z-index:40;box-shadow:0 0 0 5px rgba(63,185,80,.15);
+       /* Own compositing layer: keeps the light painted against the viewport rather than in step with
+          the scrolling container beside it. translateZ(0) rather than will-change, which would make it
+          a containing block for nothing and is a standing hint rather than a one-off promotion. */
+       transform:translateZ(0)}
 #light.stale{box-shadow:0 0 0 5px rgba(210,153,34,.16)}
 #light.dead{box-shadow:0 0 0 5px rgba(248,81,73,.16)}
 
@@ -551,7 +555,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823221200";
+  var BUILD="20260823221755";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
