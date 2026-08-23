@@ -339,10 +339,14 @@ function poll(){
 function ageSec(){ return snap ? Math.max(0,(Date.now()-snapAt)/1000 + (snapAt-Date.parse(snap.t))/1000) : 0; }
 function live(v){ return v==null?null:v+ageSec(); }
 
-function chip(name,state,elapsed){
+function chip(h){
+  var name=h.name, state=h.state, elapsed=h.el;
   var c=state==="passed"?"var(--green)":state==="failed"?"var(--red)":
         state==="running"?"var(--blue)":"var(--dim)";
-  var txt=name+" "+state+(state==="running"&&elapsed?" "+span(live(elapsed)):"");
+  /* The desktop says "failed (3)". The count is the difference between "something went wrong" and
+     "three things went wrong", and it was being dropped on the way to the phone. */
+  var label = state==="failed" && (h.fails|0)>0 ? "failed ("+(h.fails|0)+")" : state;
+  var txt=name+" "+label+(state==="running"&&elapsed?" "+span(live(elapsed)):"");
   return '<span class="chip" style="color:'+c+';border-color:'+c+'55;background:'+c+'14">'+esc(txt)+'</span>';
 }
 
@@ -426,12 +430,23 @@ function render(){
    + (snap.abandoned?" · "+snap.abandoned+" abandoned, not shown":"")+'</span></h2>';
   if(!bs.length) h+='<div class="dim">no landing in flight</div>';
   bs.forEach(function(b){
-    h+='<div class="card" style="--stripe:var(--blue)">'
+    /* Blue means "in flight" everywhere else on this board, so a bundle that is merely HOLDING A
+       LANE must not be painted blue - it is waiting, which is amber. The desktop has always derived
+       this from one predicate (accent = testing ? blue : amber) and drives both the stripe and the
+       state text from it; the web had the colour hard-coded in both places and so called every
+       bundle running. */
+    var acc = b.state==="testing" ? "var(--blue)" : "var(--amber)";
+    var failed=(b.halves||[]).filter(function(x){return x.state==="failed"&&x.detail})[0];
+    var runh=(b.halves||[]).filter(function(x){return x.state==="running"&&x.prog})[0];
+    h+='<div class="card" style="--stripe:'+acc+'">'
      + '<div class="row2"><div class="br">'+esc(b.branch)+'</div>'
-     + '<div class="mono" style="color:var(--blue);margin-left:auto">'+esc(stateLabel(b.state))+'</div></div>'
+     + '<div class="mono" style="color:'+acc+';margin-left:auto">'+esc(stateLabel(b.state))+'</div></div>'
      + '<div class="meta mono">'+esc(["bundle "+b.id,b.classify,b.commit].filter(Boolean).join(" · "))+'</div>'
      + '<div class="meta mono">age '+esc(span(live(b.age)))+'</div>'
-     + '<div class="chips">'+(b.halves||[]).map(function(x){return chip(x.name,x.state,x.el)}).join("")+'</div>'
+     + (b.lane?'<div class="meta mono">lane '+esc(b.lane)+'</div>':"")
+     + '<div class="chips">'+(b.halves||[]).map(chip).join("")+'</div>'
+     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)+" · "+span(live(runh.prog.since))+" into the current step")+'</div>':"")
+     + (failed?'<div class="prog mono" style="color:var(--red)">'+esc(String(failed.detail).replace(/\s+/g," ").trim())+'</div>':"")
      + (b.collides&&b.collides.length?'<div class="prog mono">collides with: '+esc(b.collides.join(", "))+'</div>':"")
      + '</div>';
   });
@@ -623,7 +638,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823223804";
+  var BUILD="20260823225259";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
