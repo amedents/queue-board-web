@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>try{if(window.top!==window.self)document.documentElement.className="framed";}
+catch(e){document.documentElement.className="framed";}</script>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="color-scheme" content="dark" />
@@ -54,6 +56,13 @@ h2 span{font-weight:400;font-size:12.5px;letter-spacing:0;text-transform:none;co
 /* The status light, same idea as the desktop's corner light: inset equally from top and right, over
    everything, never in the layout flow so nothing below it moves when it changes. Absolute against
    the body, which never scrolls - see the note above for why fixed cannot be used here. */
+/* env(safe-area-inset-*) describes the obstructions of the TOP-LEVEL viewport, and iOS reports the
+   device's inset to a frame as well. Opened from the App Hub, the Hub's own bar has ALREADY cleared
+   the notch above this document, so applying the inset again pushes everything down a second time by
+   the height of the Dynamic Island - which is where the status light was landing instead of the
+   corner. Standalone or in Safari the inset is real and still applies. */
+html.framed #scroll{padding-top:10px}
+html.framed #light{top:14px}
 #light{position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;width:9px;height:9px;
        border-radius:50%;z-index:40;box-shadow:0 0 0 5px rgba(63,185,80,.15)}
 #light.stale{box-shadow:0 0 0 5px rgba(210,153,34,.16)}
@@ -485,7 +494,9 @@ el("pairPaste").addEventListener("click",function(){
       "scroll.top   "+(sc?sc.scrollTop:-1)+"   scrollH "+(sc?sc.scrollHeight:-1)
         +"   clientH "+(sc?sc.clientHeight:-1),
       "light.top    "+Math.round(r.top)+"   light.right "+Math.round(r.right),
-      "light.pos    "+getComputedStyle(el("light")).position
+      "light.pos    "+getComputedStyle(el("light")).position,
+      "framedClass  "+document.documentElement.className,
+      "build        "+(window.__QB_BUILD__||"unstamped")
     ].join(NL);
     setTimeout(tick,250);
   }
@@ -540,7 +551,8 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260823220727";
+  var BUILD="20260823221200";
+  window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
   function check(){
