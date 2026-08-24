@@ -372,6 +372,11 @@ function runCard(r,queued,due){
                changes second to second. Kept in step with the desktop's PaintMachineRow. */
             : queued ? "waiting "+coarse(live(r.waited))
             : r.state==="granted" ? "granted "+coarse(live(r.held))
+            /* A run that is OVER is not ticking, so its duration must not have the snapshot's age added
+               to it. r.kind is set exactly when the arbiter would drop this entry - the run finished, or
+               its process is gone - and the exe has already frozen r.held at the run's own last stamp,
+               so live() here would start it moving again on the phone alone. */
+            : r.kind ? span(r.held)
             : span(live(r.held));
   var meta = due ? "the gate still owes this half · no ticket claimed yet"
                  : [r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
@@ -380,7 +385,11 @@ function runCard(r,queued,due){
       + '<div class="row2"><div class="mono dim">'+esc(meta)+'</div>'
       + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';margin-left:auto">'+esc(right)+'</div></div>';
   if(r.mode) h+='<div class="mono" style="color:'+(r.mode==="exclusive"?"var(--amber)":"var(--dim)")+'">'+esc(r.mode)+'</div>';
-  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+span(live(r.prog.since))+" into the current step")+'</div>';
+  /* The current-step clause only exists while there IS a current step: the payload omits `since`
+     once the run's own log records `complete`. The steps done and the last step's duration are facts
+     about a finished run and stay. */
+  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)
+      +(r.prog.since==null?"":" · "+span(live(r.prog.since))+" into the current step"))+'</div>';
   /* The desktop paints this in red beside the progress line; on a phone it gets its own row rather
      than competing for width. Without it the board looked identical whether a run was sailing through
      or failing, which is the one distinction the queue exists to show. */
@@ -462,7 +471,8 @@ function render(){
      + '<div class="meta mono">age '+esc(coarse(live(b.age)))+'</div>'
      + (b.lane?'<div class="meta mono">lane '+esc(b.lane)+'</div>':"")
      + '<div class="chips">'+(b.halves||[]).map(chip).join("")+'</div>'
-     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)+" · "+span(live(runh.prog.since))+" into the current step")+'</div>':"")
+     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)
+         +(runh.prog.since==null?"":" · "+span(live(runh.prog.since))+" into the current step"))+'</div>':"")
      + (failed?'<div class="prog mono" style="color:var(--red)">'+esc(String(failed.detail).replace(/\s+/g," ").trim())+'</div>':"")
      + (b.collides&&b.collides.length?'<div class="prog mono">collides with: '+esc(b.collides.join(", "))+'</div>':"")
      + '</div>';
@@ -655,7 +665,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260824193324";
+  var BUILD="20260824195141";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
