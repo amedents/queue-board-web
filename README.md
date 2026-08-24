@@ -1,3 +1,3 @@
 # queue-board-web
 
-Private, offline single-file app. No accounts, no servers.
+Encrypted read-only view of this machine's coordination queues. The key never leaves the two paired devices.

@@ -238,12 +238,15 @@ function span(s){
   return h+"h"+(m<10?"0":"")+m+"m";
 }
 
-/* EVERY STILL-RUNNING CLOCK reads through here: an age, a wait, a hold, an elapsed. They all answer
-   "recently, or a while back?", and a seconds digit there changes every second - answering a question
-   nobody asked while making the column twitch. These tick client-side between polls, so the twitch is
-   continuous rather than once per refresh.
-   FINISHED DURATIONS KEEP THEIR SECONDS and stay on span(): how long a run took, how long a step took,
-   how long a landing queued before starting. There the exact number is the point and never changes.
+/* THE SPLIT IS "IS ANYONE WATCHING THIS NUMBER?", NOT "IS IT STILL RUNNING?".
+   COARSE, here: the clocks read to answer "recently, or a while back?" - an age, a wait, a hold, a grant,
+   how long ago the board synchronised. A seconds digit there answers a question nobody asked while making
+   the column twitch, and these tick client-side between polls, so the twitch is continuous rather than
+   once per refresh.
+   SPAN, not here: finished durations, where the exact number is the point and never changes again - and
+   the two LIVE clocks that are genuinely watched, a running half's elapsed time and how long the current
+   step has been silent. Those answer "is it still moving?", and rounding to the minute deletes the
+   answer: a step quiet for 5 s and one quiet for 55 s both read "<1m".
    Kept identical to the desktop's Fmt.Coarse so the two apps cannot drift apart. */
 function coarse(s){
   if(s==null||s<0)return "--";
@@ -377,7 +380,7 @@ function runCard(r,queued,due){
       + '<div class="row2"><div class="mono dim">'+esc(meta)+'</div>'
       + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';margin-left:auto">'+esc(right)+'</div></div>';
   if(r.mode) h+='<div class="mono" style="color:'+(r.mode==="exclusive"?"var(--amber)":"var(--dim)")+'">'+esc(r.mode)+'</div>';
-  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+coarse(live(r.prog.since))+" into the current step")+'</div>';
+  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)+" · "+span(live(r.prog.since))+" into the current step")+'</div>';
   /* The desktop paints this in red beside the progress line; on a phone it gets its own row rather
      than competing for width. Without it the board looked identical whether a run was sailing through
      or failing, which is the one distinction the queue exists to show. */
@@ -459,7 +462,7 @@ function render(){
      + '<div class="meta mono">age '+esc(coarse(live(b.age)))+'</div>'
      + (b.lane?'<div class="meta mono">lane '+esc(b.lane)+'</div>':"")
      + '<div class="chips">'+(b.halves||[]).map(chip).join("")+'</div>'
-     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)+" · "+coarse(live(runh.prog.since))+" into the current step")+'</div>':"")
+     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)+" · "+span(live(runh.prog.since))+" into the current step")+'</div>':"")
      + (failed?'<div class="prog mono" style="color:var(--red)">'+esc(String(failed.detail).replace(/\s+/g," ").trim())+'</div>':"")
      + (b.collides&&b.collides.length?'<div class="prog mono">collides with: '+esc(b.collides.join(", "))+'</div>':"")
      + '</div>';
@@ -652,7 +655,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260824004402";
+  var BUILD="20260824193324";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
