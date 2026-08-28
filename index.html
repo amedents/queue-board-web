@@ -254,8 +254,7 @@ function openFailPop(row,i){
   d.className="fpop";
   d.innerHTML='<b>'+f.count+(f.count===1?" failure":" failures")+' · '+esc(f.title)+'</b>'
     + f.items.map(function(x){
-        return '<div class="fline mono">✗ '+esc(x.name)
-             + (x.detail?' · '+esc(x.detail):'')+'</div>'; }).join("")
+        return '<div class="fline mono">'+esc(x.name)+'</div>'; }).join("")
     + (f.count>f.items.length
         ? '<div class="fline mono">and '+(f.count-f.items.length)+" more · full list in the run's events.jsonl</div>"
         : '');
@@ -584,7 +583,7 @@ function render(){
     var fa="", hk="hist|"+r.branch+"|"+r.type+"|"+(r.ran==null?"?":r.ran);
     if(r.failed&&r.failed.length){
       fa=' data-fail="'+FAILS.length+'" data-fkey="'+esc(hk)+'"';
-      FAILS.push({key:hk, title:r.branch+" · "+r.type,
+      FAILS.push({key:hk, title:r.branch,
                   items:r.failed, count:r.fails||r.failed.length});
     }
     h+='<div class="hrow"'+fa+'><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
@@ -760,7 +759,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260828200810";
+  var BUILD="20260828204804";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
