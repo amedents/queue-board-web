@@ -42,6 +42,8 @@ body{
   display:flex;flex-direction:column;position:relative;
 }
 #scroll{
+  /* positioned so the failure popup can be placed against it - see openFailPop */
+  position:relative;
   flex:1;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;
   padding:var(--padtop) 12px calc(28px + env(safe-area-inset-bottom));
   /* A phone is the design target, so nothing may extend past the viewport - but the same page opened
@@ -111,6 +113,17 @@ html.framed #lightdock{display:none}
 .chip{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;padding:3px 8px;border-radius:5px;
       border:1px solid;white-space:nowrap}
 .prog{margin-top:6px;color:var(--dim);word-break:break-word}
+
+/* THE FAILURE POPUP. Absolutely positioned inside #scroll, so it scrolls WITH the content - which it
+   never has to do for long, because scrolling closes it. Full bleed left-to-right rather than anchored
+   to the row's x: on a phone there is no width to spare for an offset, and a probe path needs all of it. */
+.fpop{position:absolute;left:8px;right:8px;z-index:20;background:var(--bg);
+      border:1px solid var(--red);border-radius:9px;padding:10px 12px;
+      box-shadow:0 8px 26px rgba(0,0,0,.6)}
+.fpop b{display:block;margin-bottom:6px;font-size:13px}
+.fline{font-size:11.5px;line-height:1.55;word-break:break-word;color:var(--dim)}
+/* The only thing that says these rows do something. */
+[data-fail]{cursor:pointer}
 
 .hist{margin-top:2px}
 .hrow{padding:9px 0;border-bottom:1px solid var(--border)}
@@ -223,6 +236,67 @@ function verdict(ok,msg){
 function el(id){return document.getElementById(id)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){
   return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+/* ---- the failed-run popup --------------------------------------------------------------------- */
+/* Failures for the rows CURRENTLY rendered, rebuilt every render. Rows carry an INDEX into this rather
+   than the data itself: escaping every probe path and reason into an HTML attribute is a quoting bug
+   waiting to happen, and an array costs nothing. `openKey` survives a re-render so a poll landing while
+   the reader is mid-list does not snatch the popup away - see reanchorFailPop. */
+var FAILS=[], fpop=null, openKey=null;
+
+function closeFailPop(){ if(fpop&&fpop.parentNode){fpop.parentNode.removeChild(fpop);} fpop=null; openKey=null; }
+
+function openFailPop(row,i){
+  if(fpop&&fpop.parentNode){fpop.parentNode.removeChild(fpop);} fpop=null;
+  var f=FAILS[i]; if(!f) return;
+  var sc=el("scroll");
+  var d=document.createElement("div");
+  d.className="fpop";
+  d.innerHTML='<b>'+f.count+(f.count===1?" failure":" failures")+' · '+esc(f.title)+'</b>'
+    + f.items.map(function(x){
+        return '<div class="fline mono">✗ '+esc(x.name)
+             + (x.detail?' · '+esc(x.detail):'')+'</div>'; }).join("")
+    + (f.count>f.items.length
+        ? '<div class="fline mono">and '+(f.count-f.items.length)+" more · full list in the run's events.jsonl</div>"
+        : '');
+  sc.appendChild(d);
+  /* Measured off getBoundingClientRect, not offsetTop: cards are position:relative, so a row's
+     offsetParent is not reliably the scroller, and the rect arithmetic is correct either way. */
+  var rr=row.getBoundingClientRect(), sr=sc.getBoundingClientRect();
+  var top=rr.bottom-sr.top+sc.scrollTop+6;
+  /* Flipped above when it would hang off the bottom. Scrolling is what CLOSES it, so a popup running
+     past the fold is one the reader can never scroll down to finish. */
+  if(top+d.offsetHeight>sc.scrollTop+sc.clientHeight-4)
+    top=Math.max(sc.scrollTop+4, rr.top-sr.top+sc.scrollTop-d.offsetHeight-6);
+  d.style.top=top+"px";
+  fpop=d; openKey=f.key;
+}
+
+/* Re-open against the row carrying the same key after a re-render. Compared by attribute rather than
+   through a querySelector, so a branch name never has to be escaped into a selector. */
+function reanchorFailPop(){
+  if(!openKey) return;
+  var want=openKey, rows=document.querySelectorAll("[data-fkey]");
+  for(var i=0;i<rows.length;i++){
+    if(rows[i].getAttribute("data-fkey")===want){ openFailPop(rows[i],+rows[i].getAttribute("data-fail")); return; }
+  }
+  closeFailPop();          /* its row is gone, and so is the popup */
+}
+
+function wireFailPop(){
+  var sc=el("scroll"); if(!sc||sc._failWired) return; sc._failWired=true;
+  sc.addEventListener("click",function(e){
+    if(e.target.closest&&e.target.closest(".fpop")) return;   /* let the reader select text in it */
+    var t=e.target.closest?e.target.closest("[data-fail]"):null;
+    if(!t){ closeFailPop(); return; }                          /* a click anywhere else dismisses it */
+    var k=t.getAttribute("data-fkey");
+    if(openKey===k){ closeFailPop(); return; }                 /* the same row again closes it */
+    openFailPop(t,+t.getAttribute("data-fail"));
+  });
+  /* passive: dismissing a popup must never be able to delay a scroll. */
+  sc.addEventListener("scroll",closeFailPop,{passive:true});
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeFailPop(); });
+}
 
 function cfgLoad(){try{return JSON.parse(localStorage.getItem(LS))||null}catch(e){return null}}
 function cfgSave(c){try{localStorage.setItem(LS,JSON.stringify(c));return true}catch(e){return false}}
@@ -380,7 +454,15 @@ function runCard(r,queued,due){
             : span(live(r.held));
   var meta = due ? "the gate still owes this half · no ticket claimed yet"
                  : [r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
-  var h='<div class="card" style="--stripe:'+stripe+'">'
+  /* A run in the queue accumulates failures WHILE it goes, so this is not limited to finished rows:
+     what it offers is "what has failed so far". */
+  var fa="";
+  if(r.prog&&r.prog.failed&&r.prog.failed.length){
+    fa=' data-fail="'+FAILS.length+'" data-fkey="'+esc("row|"+r.ticket)+'"';
+    FAILS.push({key:"row|"+r.ticket, title:r.label+" · ticket "+r.ticket,
+                items:r.prog.failed, count:r.prog.fails||r.prog.failed.length});
+  }
+  var h='<div class="card"'+fa+' style="--stripe:'+stripe+'">'
       + '<div class="br">'+esc(r.label)+'</div>'
       + '<div class="row2"><div class="mono dim">'+esc(meta)+'</div>'
       + '<div class="mono" style="color:'+(due||queued?"var(--dim)":stripe)+';margin-left:auto">'+esc(right)+'</div></div>';
@@ -418,6 +500,9 @@ function postDot(col){
 }
 
 function render(){
+  /* Rebuilt from scratch every render, before anything can push into it: the rows carry indices into
+     this array, so a stale entry would point a row at another run's failures. */
+  FAILS=[];
   var lightEl=el("light"), ageEl=el("age");
   if(lastErr&&!snap){
     el("body").innerHTML="";
@@ -494,7 +579,15 @@ function render(){
   h+='<h2>Recent history</h2><div class="hist">';
   (snap.history||[]).forEach(function(r){
     var c=r.ok?"var(--green)":"var(--red)";
-    h+='<div class="hrow"><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
+    /* Keyed by branch, half and duration - NOT by position: a landing finishing reorders this list, and
+       a popup keyed on the slot would re-open against whichever run took it. */
+    var fa="", hk="hist|"+r.branch+"|"+r.type+"|"+(r.ran==null?"?":r.ran);
+    if(r.failed&&r.failed.length){
+      fa=' data-fail="'+FAILS.length+'" data-fkey="'+esc(hk)+'"';
+      FAILS.push({key:hk, title:r.branch+" · "+r.type,
+                  items:r.failed, count:r.fails||r.failed.length});
+    }
+    h+='<div class="hrow"'+fa+'><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
      + '<div class="hmeta mono">'
      + '<span style="color:'+(r.type==="performance"?"var(--amber)":"var(--blue)")+'">'+esc(r.type)+'</span>'
      + '<span style="color:'+c+'">'+(r.ok?"✓":"✗")+" "+esc(r.out)+'</span>'
@@ -515,6 +608,8 @@ function render(){
    + '</div>';
 
   el("body").innerHTML=h;
+  wireFailPop();
+  reanchorFailPop();
 }
 
 /* ---- boot ------------------------------------------------------------------------------------ */
@@ -665,7 +760,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260824195141";
+  var BUILD="20260828200810";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
