@@ -553,6 +553,11 @@ function render(){
      + '<div class="mono" style="color:'+acc+';margin-left:auto">'+esc(stateLabel(b.state))+'</div></div>'
      + '<div class="meta mono">'+esc(["bundle "+b.id,b.classify,b.commit].filter(Boolean).join(" · "))+'</div>'
      + '<div class="meta mono">age '+esc(coarse(live(b.age)))+'</div>'
+     /* ABOVE the lane, the chips and the progress, mirroring the desktop and for the same reason: those
+        say a machine is busy and how far along it is, and this says the answer it produces is void. */
+     + (b.spec?'<div class="prog mono" style="color:var(--red)">'
+         +esc(b.inv&&b.inv.length?"verdict void - main moved into "+b.inv.join(", ")
+                                 :"verdict void - main moved underneath this commit")+'</div>':"")
      + (b.lane?'<div class="meta mono">lane '+esc(b.lane)+'</div>':"")
      + '<div class="chips">'+(b.halves||[]).map(chip).join("")+'</div>'
      + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)
@@ -759,7 +764,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260828204804";
+  var BUILD="20260829185706";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
