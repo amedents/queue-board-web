@@ -234,6 +234,10 @@ function verdict(ok,msg){
 }
 
 function el(id){return document.getElementById(id)}
+/* "pool 37/89" while the run's work pool is in flight, and nothing at all otherwise. A snapshot from
+   before the plan event, or from a performance half, carries 0/0 and gets no clause - absent means the
+   run published no denominator, never that no unit is done. */
+function pool(p){ return (p&&p.poolTotal>0&&p.poolDone<p.poolTotal) ? "  \u00b7  pool "+p.poolDone+"/"+p.poolTotal : ""; }
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){
   return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 
@@ -387,6 +391,7 @@ function poll(){
         if(!("history" in p)||!("running" in p)||!("builds" in p)) bad.push("payload is missing sections");
         if(Math.abs(ageSec())>86400) bad.push("snapshot age is implausible: "+Math.round(ageSec())+"s");
         if(document.getElementById("body").innerHTML.length<200) bad.push("nothing rendered");
+        if(p.engine&&document.getElementById("body").innerHTML.indexOf("Engine builds")<0) bad.push("the payload carries engine builds and none rendered");
         /* The phone is the design target, so anything wider than the viewport is a defect, not a
            cosmetic nit - it silently eats the right-hand column, which is where every duration lives.
            body{overflow-x:hidden} HIDES this rather than fixing it, so the check measures elements
@@ -400,9 +405,14 @@ function poll(){
         if(worst) bad.push("overflows the viewport by "+Math.round(worstW-vw)+"px: <"
           +worst.tagName.toLowerCase()+" class='"+worst.className+"'> “"
           +(worst.textContent||"").trim().slice(0,40)+"”");
+        /* Text that does not wrap spills past its box without widening it, so the element scan above
+           cannot see it. The scroller clips horizontally, and its scrollWidth still counts what it clipped. */
+        var sc=el("scroll");
+        if(sc.scrollWidth>sc.clientWidth+1) bad.push("content is wider than the screen by "+(sc.scrollWidth-sc.clientWidth)+"px");
         verdict(bad.length===0, bad.length? bad.join(" | ")
           : "decrypted "+JSON.stringify(p).length+"B, age "+Math.round(ageSec())+"s, "
-            +(p.history||[]).length+" history rows, "+(p.bundles||[]).length+" bundles");
+            +(p.history||[]).length+" history rows, "+(p.bundles||[]).length+" bundles, "
+            +(p.engine?p.engine.length+" engine builds":"no engine section"));
       }
     })
     .catch(function(e){
@@ -469,7 +479,10 @@ function runCard(r,queued,due){
   /* The current-step clause only exists while there IS a current step: the payload omits `since`
      once the run's own log records `complete`. The steps done and the last step's duration are facts
      about a finished run and stay. */
-  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)
+  /* The pool clause is APPENDED to the step count rather than replacing it, and only while the pool is
+     in flight - past its own total the later steps are windowed probes the plan never counted. Kept in
+     step with the desktop's Fmt.Progress and with the history copy below. */
+  if(r.prog&&!due) h+='<div class="prog mono">'+esc(r.prog.steps+" step(s) done"+pool(r.prog)+" · last: “"+r.prog.last+"” took "+span(r.prog.lastMs/1000)
       +(r.prog.since==null?"":" · "+span(live(r.prog.since))+" into the current step"))+'</div>';
   /* The desktop paints this in red beside the progress line; on a phone it gets its own row rather
      than competing for width. Without it the board looked identical whether a run was sailing through
@@ -560,7 +573,7 @@ function render(){
                                  :"verdict void - main moved underneath this commit")+'</div>':"")
      + (b.lane?'<div class="meta mono">lane '+esc(b.lane)+'</div>':"")
      + '<div class="chips">'+(b.halves||[]).map(chip).join("")+'</div>'
-     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)
+     + (runh?'<div class="prog mono">'+esc(runh.prog.steps+" step(s) done"+pool(runh.prog)+" · last: “"+runh.prog.last+"” took "+span(runh.prog.lastMs/1000)
          +(runh.prog.since==null?"":" · "+span(live(runh.prog.since))+" into the current step"))+'</div>':"")
      + (failed?'<div class="prog mono" style="color:var(--red)">'+esc(String(failed.detail).replace(/\s+/g," ").trim())+'</div>':"")
      + (b.collides&&b.collides.length?'<div class="prog mono">collides with: '+esc(b.collides.join(", "))+'</div>':"")
@@ -579,6 +592,28 @@ function render(){
   h+='<h2>Build locks <span>'+(snap.builds||[]).map(function(b){
       return b.held>=0 ? esc(b.name)+" held "+coarse(live(b.held))+(b.waiting?" (+"+b.waiting+" waiting)":"")
                        : esc(b.name)+" idle"; }).join(" · ")+'</span></h2>';
+
+  /* The desktop's ENGINE BUILDS, composed from the same fields and painted by the same rule: amber while
+     building, blue while a run is on it, a clone's tree amber when it is not main's engine, main's slot
+     bright, the rest quiet. ABSENT rather than empty when the PC's board predates the section, so an old
+     snapshot draws no section instead of claiming there are no builds. */
+  if(snap.engine){
+    var slots=snap.engine.filter(function(e){return e.kind==="slot"});
+    var gb=slots.reduce(function(a,e){return a+(e.bytes||0)},0)/1073741824;
+    h+='<h2>Engine builds <span>'+slots.length+' slot(s)'+(gb>0?" · "+gb.toFixed(1)+" GB":"")+'</span></h2><div class="hist">';
+    if(!snap.engine.length) h+='<div class="dim">none</div>';
+    snap.engine.forEach(function(e){
+      var bits = e.kind==="slot"
+        ? ["slot "+e.key,"patch "+e.patch,e.main?"main":"",e.state,e.inUse?e.inUse+" run(s) in flight":"",
+           e.for?"for "+e.for:"",e.by?"built by "+e.by:"",e.used!=null?"used "+coarse(live(e.used))+" ago":""]
+        : ["tree "+e.drive,"patch "+e.patch,e.main?"main":"not main",e.by?"built by "+e.by:"builder not recorded",
+           e.used!=null?"built "+coarse(live(e.used))+" ago":""];
+      var c = e.state==="building"?"var(--amber)" : e.inUse?"var(--blue)"
+            : e.kind==="tree"?(e.main?"var(--dim)":"var(--amber)") : e.main?"var(--text)":"var(--dim)";
+      h+='<div class="hrow mono" style="color:'+c+'">'+esc(bits.filter(Boolean).join(" · "))+'</div>';
+    });
+    h+='</div>';
+  }
 
   h+='<h2>Recent history</h2><div class="hist">';
   (snap.history||[]).forEach(function(r){
@@ -764,7 +799,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260829185706";
+  var BUILD="20260919015420";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
