@@ -409,6 +409,14 @@ function poll(){
            cannot see it. The scroller clips horizontally, and its scrollWidth still counts what it clipped. */
         var sc=el("scroll");
         if(sc.scrollWidth>sc.clientWidth+1) bad.push("content is wider than the screen by "+(sc.scrollWidth-sc.clientWidth)+"px");
+        /* And a card clips (overflow:hidden), so text too long for one is cut off inside it and never reaches
+           the scroller at all: any box whose content is wider than itself is text the reader cannot see. */
+        for(var j=0;j<all.length;j++){
+          var b=all[j];
+          if(b.clientWidth>0&&b.scrollWidth>b.clientWidth+1){
+            bad.push("clipped by "+(b.scrollWidth-b.clientWidth)+"px inside <"+b.tagName.toLowerCase()+" class='"+b.className+"'> “"
+              +(b.textContent||"").trim().slice(0,40)+"”"); break; }
+        }
         verdict(bad.length===0, bad.length? bad.join(" | ")
           : "decrypted "+JSON.stringify(p).length+"B, age "+Math.round(ageSec())+"s, "
             +(p.history||[]).length+" history rows, "+(p.bundles||[]).length+" bundles, "
@@ -446,7 +454,8 @@ function chip(h){
   return '<span class="chip" style="color:'+c+';border-color:'+c+'55;background:'+c+'14">'+esc(txt)+'</span>';
 }
 
-function runCard(r,queued,due){
+/* `res` is set for a build-lock claim, whose card is otherwise this one: the lock leads its meta line. */
+function runCard(r,queued,due,res){
   var stripe = due?"var(--dim)" : r.kind==="fault"?"var(--red)" : r.kind==="done"?"var(--green)" :
                queued?"var(--amber)":"var(--blue)";
   var right = due ? "not started"
@@ -462,7 +471,7 @@ function runCard(r,queued,due){
             : r.kind ? span(r.held)
             : span(live(r.held));
   var meta = due ? "the gate still owes this half · no ticket claimed yet"
-                 : [r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
+                 : [res,r.prio,"ticket "+r.ticket].filter(Boolean).join(" · ");
   /* A run in the queue accumulates failures WHILE it goes, so this is not limited to finished rows:
      what it offers is "what has failed so far". */
   var fa="";
@@ -490,7 +499,7 @@ function runCard(r,queued,due){
   if(r.prog&&!due&&((r.prog.fails|0)>0||(r.prog.blocked|0)>0))
     h+='<div class="prog mono" style="color:var(--red)">'
       +esc((r.prog.fails|0)+" failure(s), "+(r.prog.blocked|0)+" blocked")+'</div>';
-  if(r.kind==="done") h+='<div class="prog mono" style="color:var(--green)">finished · the machine frees when the arbiter next looks</div>';
+  if(r.kind==="done") h+='<div class="prog mono" style="color:var(--green)">finished · the '+(res?"lock":"machine")+' frees when the arbiter next looks</div>';
   else if(r.kind==="fault") h+='<div class="prog mono" style="color:var(--red)">'
       +esc("! unreaped"+(r.stale?" · "+r.stale:"")+" · the next arbiter call drops it")+'</div>';
   return h+'</div>';
@@ -592,27 +601,35 @@ function render(){
   h+='<h2>Build locks <span>'+(snap.builds||[]).map(function(b){
       return b.held>=0 ? esc(b.name)+" held "+coarse(live(b.held))+(b.waiting?" (+"+b.waiting+" waiting)":"")
                        : esc(b.name)+" idle"; }).join(" · ")+'</span></h2>';
+  /* A held lock and its queue are test-queue cards led by the lock, as on the desktop. A payload from before
+     buildRows existed simply has none. */
+  (snap.buildRows||[]).forEach(function(r){ h+=runCard(r,r.state==="queued",false,r.res); });
 
-  /* The desktop's ENGINE BUILDS, composed from the same fields and painted by the same rule: amber while
-     building, blue while a run is on it, a clone's tree amber when it is not main's engine, main's slot
-     bright, the rest quiet. ABSENT rather than empty when the PC's board predates the section, so an old
-     snapshot draws no section instead of claiming there are no builds. */
+  /* The desktop's ENGINE BUILDS, as the same cards the queues draw and ranked by the same rule: amber while
+     building, blue while a run is on it, a clone's tree amber when it is not main's engine, the rest quiet,
+     with main's state word bright. ABSENT rather than empty when the PC's board predates the section, so an
+     old snapshot draws no section instead of claiming there are no builds. */
   if(snap.engine){
     var slots=snap.engine.filter(function(e){return e.kind==="slot"});
-    var gb=slots.reduce(function(a,e){return a+(e.bytes||0)},0)/1073741824;
-    h+='<h2>Engine builds <span>'+slots.length+' slot(s)'+(gb>0?" · "+gb.toFixed(1)+" GB":"")+'</span></h2><div class="hist">';
+    var gb=function(n){ return (n/1073741824).toFixed(1)+" GB"; };
+    var total=slots.reduce(function(a,e){return a+(e.bytes||0)},0);
+    h+='<h2>Engine builds <span>'+slots.length+' slot(s)'+(total>0?" · "+gb(total):"")+'</span></h2>';
     if(!snap.engine.length) h+='<div class="dim">none</div>';
     snap.engine.forEach(function(e){
-      var bits = e.kind==="slot"
-        ? ["slot "+e.key,"patch "+e.patch,e.main?"main":"",e.state,e.inUse?e.inUse+" run(s) in flight":"",
-           e.for?"for "+e.for:"",e.by?"built by "+e.by:"",e.used!=null?"used "+coarse(live(e.used))+" ago":""]
-        : ["tree "+e.drive,"patch "+e.patch,e.main?"main":"not main",e.by?"built by "+e.by:"builder not recorded",
-           e.used!=null?"built "+coarse(live(e.used))+" ago":""];
-      var c = e.state==="building"?"var(--amber)" : e.inUse?"var(--blue)"
-            : e.kind==="tree"?(e.main?"var(--dim)":"var(--amber)") : e.main?"var(--text)":"var(--dim)";
-      h+='<div class="hrow mono" style="color:'+c+'">'+esc(bits.filter(Boolean).join(" · "))+'</div>';
+      var slot=e.kind==="slot";
+      var c = e.building?"var(--amber)" : e.inUse?"var(--blue)" : (!slot&&!e.main)?"var(--amber)" : "var(--dim)";
+      var st = e.building?"building" : e.inUse?e.inUse+" run(s) in flight" : e.main?"main" : !slot?"not main"
+             : e.unseeded?"seed incomplete" : e.targets?"ready" : "not built";
+      var facts=["patch "+e.patch, e.main&&st!=="main"?"main":"", slot?(e.targets||"nothing built"):"", slot&&e.bytes?gb(e.bytes):""];
+      var who=[slot&&e.for?"for "+e.for:"", e.by?"built by "+e.by:"builder not recorded"];
+      h+='<div class="card" style="--stripe:'+c+'">'
+       + '<div class="row2"><div class="br">'+esc(slot?"slot "+e.key:"tree "+e.drive)+'</div>'
+       + '<div class="mono" style="color:'+(st==="main"?"var(--text)":c)+';margin-left:auto">'+esc(st)+'</div></div>'
+       + '<div class="meta mono">'+esc(facts.filter(Boolean).join(" · "))+'</div>'
+       + '<div class="meta mono">'+esc(who.filter(Boolean).join(" · "))+'</div>'
+       + (e.used!=null?'<div class="meta mono">'+esc((slot?"used ":"built ")+coarse(live(e.used))+" ago")+'</div>':"")
+       + '</div>';
     });
-    h+='</div>';
   }
 
   h+='<h2>Recent history</h2><div class="hist">';
@@ -799,7 +816,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260919015420";
+  var BUILD="20260919094038";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
