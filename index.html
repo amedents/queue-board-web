@@ -19,7 +19,7 @@ catch(e){document.documentElement.className="framed";}</script>
    meaning: one colour, one meaning, on both. */
 :root{
   --bg:#0F1115; --card:#171A21; --border:#262B36; --text:#E6E9EF; --dim:#8B93A7;
-  --blue:#4A9EFF; --green:#3FB950; --red:#F85149; --amber:#D29922; --purple:#A371F7;
+  --blue:#4A9EFF; --green:#3FB950; --red:#F85149; --amber:#D29922; --purple:#A371F7; --thumb:#4A5263;
   --padtop:max(10px,env(safe-area-inset-top));
 }
 /* Framed inside the App Hub the parent's bar has already cleared the notch above this document, and
@@ -125,7 +125,17 @@ html.framed #lightdock{display:none}
 /* The only thing that says these rows do something. */
 [data-fail]{cursor:pointer}
 
-.hist{margin-top:2px}
+/* RECENT HISTORY IS A BOX WITH ITS OWN SCROLL. The list is every run the PC still has on disk - hundreds -
+   so laid into the page it would push the legend a whole list away. The box is sized in JS to eight rows
+   plus half of the ninth (sizeHist), and the half row is deliberate: iOS shows no scrollbar until a scroll
+   starts, so a row cut in half is what says there is more. position:relative makes the rows' offsetTop
+   measure from the box, which is what sizeHist reads. */
+.hist{position:relative;margin-top:2px;overflow-y:auto;overflow-x:hidden;
+      background:var(--card);border:1px solid var(--border);border-radius:9px;padding:0 12px;
+      scrollbar-width:thin;scrollbar-color:var(--thumb) transparent}
+.hist:empty{display:none}
+.hist::-webkit-scrollbar{width:8px}
+.hist::-webkit-scrollbar-thumb{background:var(--thumb);border-radius:4px}
 .hrow{padding:9px 0;border-bottom:1px solid var(--border)}
 .hrow:last-child{border-bottom:0}
 .hmeta{display:flex;gap:9px;align-items:baseline;margin-top:3px;flex-wrap:wrap}
@@ -242,17 +252,19 @@ function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){
   return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 
 /* ---- the failed-run popup --------------------------------------------------------------------- */
-/* Failures for the rows CURRENTLY rendered, rebuilt every render. Rows carry an INDEX into this rather
-   than the data itself: escaping every probe path and reason into an HTML attribute is a quoting bug
-   waiting to happen, and an array costs nothing. `openKey` survives a re-render so a poll landing while
-   the reader is mid-list does not snatch the popup away - see reanchorFailPop. */
-var FAILS=[], fpop=null, openKey=null;
+/* Failures for the rows CURRENTLY rendered, rebuilt every render and looked up by the row's own KEY. Rows
+   carry the key rather than the data itself: escaping every probe path and reason into an HTML attribute is
+   a quoting bug waiting to happen. NOT an index into a list: the history box keeps its rows across renders
+   that change nothing in it (see render), so an index assigned in an earlier render would point a kept row
+   at whichever run took that slot since. `openKey` survives a re-render so a poll landing while the reader
+   is mid-list does not snatch the popup away - see reanchorFailPop. */
+var FAILS={}, fpop=null, openKey=null;
 
 function closeFailPop(){ if(fpop&&fpop.parentNode){fpop.parentNode.removeChild(fpop);} fpop=null; openKey=null; }
 
-function openFailPop(row,i){
+function openFailPop(row){
   if(fpop&&fpop.parentNode){fpop.parentNode.removeChild(fpop);} fpop=null;
-  var f=FAILS[i]; if(!f) return;
+  var f=FAILS[row.getAttribute("data-fkey")]; if(!f) return;
   var sc=el("scroll");
   var d=document.createElement("div");
   d.className="fpop";
@@ -281,7 +293,7 @@ function reanchorFailPop(){
   if(!openKey) return;
   var want=openKey, rows=document.querySelectorAll("[data-fkey]");
   for(var i=0;i<rows.length;i++){
-    if(rows[i].getAttribute("data-fkey")===want){ openFailPop(rows[i],+rows[i].getAttribute("data-fail")); return; }
+    if(rows[i].getAttribute("data-fkey")===want){ openFailPop(rows[i]); return; }
   }
   closeFailPop();          /* its row is gone, and so is the popup */
 }
@@ -294,10 +306,11 @@ function wireFailPop(){
     if(!t){ closeFailPop(); return; }                          /* a click anywhere else dismisses it */
     var k=t.getAttribute("data-fkey");
     if(openKey===k){ closeFailPop(); return; }                 /* the same row again closes it */
-    openFailPop(t,+t.getAttribute("data-fail"));
+    openFailPop(t);
   });
-  /* passive: dismissing a popup must never be able to delay a scroll. */
-  sc.addEventListener("scroll",closeFailPop,{passive:true});
+  /* passive: dismissing a popup must never be able to delay a scroll. CAPTURE, because `scroll` does not
+     bubble: without it scrolling the history box would leave the popup pinned where its row used to be. */
+  sc.addEventListener("scroll",closeFailPop,{passive:true,capture:true});
   document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeFailPop(); });
 }
 
@@ -355,13 +368,22 @@ function parsePair(str){
   return {url:url,key:key};
 }
 /* The publisher APPENDS the 16-byte GCM tag to the ciphertext, which is exactly the layout
-   crypto.subtle.decrypt expects — so the two halves are passed through untouched. */
+   crypto.subtle.decrypt expects — so the two halves are passed through untouched.
+   `z:"gzip"` means the plaintext was gzipped BEFORE encryption: ciphertext does not compress, so it is the
+   only place compression can happen, and it is what lets the payload carry the whole run history (55.6 KB
+   of JSON measured) in fewer bytes than eight rows used to cost. A payload without `z` is read as before. */
 function decryptPayload(cfg,doc){
   return crypto.subtle.importKey("raw",b64bytes(cfg.key),{name:"AES-GCM"},false,["decrypt"])
     .then(function(k){
       return crypto.subtle.decrypt({name:"AES-GCM",iv:b64bytes(doc.iv)},k,b64bytes(doc.ct));
     })
-    .then(function(buf){ return JSON.parse(new TextDecoder().decode(buf)); });
+    .then(function(buf){
+      if(doc.z!=="gzip") return new TextDecoder().decode(buf);
+      if(typeof DecompressionStream!=="function")
+        throw new Error("this browser cannot unpack the board (no DecompressionStream) — update it");
+      return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    })
+    .then(JSON.parse);
 }
 
 /* ---- fetch ----------------------------------------------------------------------------------- */
@@ -416,6 +438,24 @@ function poll(){
           if(b.clientWidth>0&&b.scrollWidth>b.clientWidth+1){
             bad.push("clipped by "+(b.scrollWidth-b.clientWidth)+"px inside <"+b.tagName.toLowerCase()+" class='"+b.className+"'> “"
               +(b.textContent||"").trim().slice(0,40)+"”"); break; }
+        }
+        /* THE HISTORY BOX. Every run in the payload must be in it; past eight it must scroll, and show the
+           eighth whole; and a render must not move its scroll - the 1 s timer re-renders, and a box rebuilt
+           each time would throw the reader back to the top every second. Measured on the kept element: a
+           render that replaced the box fails the identity check before the scroll one could pass by luck. */
+        var hb=el("hist"), hn=(p.history||[]).length;
+        if(!hb) bad.push("no history box rendered");
+        else {
+          if(hb.children.length!==hn) bad.push("the history box holds "+hb.children.length+" of "+hn+" runs");
+          if(hn>HIST_ROWS){
+            if(!(hb.scrollHeight>hb.clientHeight+1)) bad.push("the history box does not scroll");
+            var r8=hb.children[HIST_ROWS-1];
+            if(r8.offsetTop+r8.offsetHeight>hb.clientTop+hb.clientHeight+1) bad.push("the eighth run is cut off by the history box");
+            hb.scrollTop=60; var kept=hb.scrollTop;
+            render();
+            if(el("hist")!==hb) bad.push("a render replaced the history box, which resets its scroll");
+            else if(kept<=0||hb.scrollTop!==kept) bad.push("a render moved the history scroll "+kept+" -> "+hb.scrollTop);
+          }
         }
         verdict(bad.length===0, bad.length? bad.join(" | ")
           : "decrypted "+JSON.stringify(p).length+"B, age "+Math.round(ageSec())+"s, "
@@ -476,9 +516,9 @@ function runCard(r,queued,due,res){
      what it offers is "what has failed so far". */
   var fa="";
   if(r.prog&&r.prog.failed&&r.prog.failed.length){
-    fa=' data-fail="'+FAILS.length+'" data-fkey="'+esc("row|"+r.ticket)+'"';
-    FAILS.push({key:"row|"+r.ticket, title:r.label+" · ticket "+r.ticket,
-                items:r.prog.failed, count:r.prog.fails||r.prog.failed.length});
+    fa=' data-fail data-fkey="'+esc("row|"+r.ticket)+'"';
+    FAILS["row|"+r.ticket]={key:"row|"+r.ticket, title:r.label+" · ticket "+r.ticket,
+                            items:r.prog.failed, count:r.prog.fails||r.prog.failed.length};
   }
   var h='<div class="card"'+fa+' style="--stripe:'+stripe+'">'
       + '<div class="br">'+esc(r.label)+'</div>'
@@ -521,9 +561,9 @@ function postDot(col){
 }
 
 function render(){
-  /* Rebuilt from scratch every render, before anything can push into it: the rows carry indices into
-     this array, so a stale entry would point a row at another run's failures. */
-  FAILS=[];
+  /* Rebuilt from scratch every render, before anything can add to it, so a run that has left the board
+     takes its failures with it. */
+  FAILS={};
   var lightEl=el("light"), ageEl=el("age");
   if(lastErr&&!snap){
     el("body").innerHTML="";
@@ -632,18 +672,17 @@ function render(){
     });
   }
 
-  h+='<h2>Recent history</h2><div class="hist">';
-  (snap.history||[]).forEach(function(r){
+  var hist=snap.history||[], hh="";
+  hist.forEach(function(r){
     var c=r.ok?"var(--green)":"var(--red)";
     /* Keyed by branch, half and duration - NOT by position: a landing finishing reorders this list, and
        a popup keyed on the slot would re-open against whichever run took it. */
     var fa="", hk="hist|"+r.branch+"|"+r.type+"|"+(r.ran==null?"?":r.ran);
     if(r.failed&&r.failed.length){
-      fa=' data-fail="'+FAILS.length+'" data-fkey="'+esc(hk)+'"';
-      FAILS.push({key:hk, title:r.branch,
-                  items:r.failed, count:r.fails||r.failed.length});
+      fa=' data-fail data-fkey="'+esc(hk)+'"';
+      FAILS[hk]={key:hk, title:r.branch, items:r.failed, count:r.fails||r.failed.length};
     }
-    h+='<div class="hrow"'+fa+'><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
+    hh+='<div class="hrow"'+fa+'><div class="mono" style="word-break:break-all">'+esc(r.branch)+'</div>'
      + '<div class="hmeta mono">'
      + '<span style="color:'+(r.type==="performance"?"var(--amber)":"var(--blue)")+'">'+esc(r.type)+'</span>'
      + '<span style="color:'+c+'">'+(r.ok?"✓":"✗")+" "+esc(r.out)+'</span>'
@@ -651,9 +690,39 @@ function render(){
      + '<span class="dim">'+esc(coarse(live(r.ago)))+' ago</span></span>'
      + '</div></div>';
   });
-  h+='</div>';
 
-  h+='<h2>Legend</h2><div class="legend">'
+  /* THE HISTORY BOX IS BUILT ONCE AND KEPT, and everything around it is rebuilt. This runs every second,
+     and replacing the box would put its scroll back at the top every second - the reader could never get
+     past the first screen of a list they scrolled into. Its rows are replaced only when their text actually
+     changed, which the coarse "N ago" column makes a once-a-minute event per row rather than every tick. */
+  if(!el("hist")){
+    el("body").innerHTML='<div id="pre"></div><h2>Recent history <span id="histn"></span></h2>'
+      + '<div class="hist" id="hist"></div><div id="post">'+legendHtml()+'</div>';
+    lastHist=null;
+  }
+  el("pre").innerHTML=h;
+  el("histn").textContent=hist.length?hist.length+" run(s)":"no run has finished yet";
+  if(hh!==lastHist){ el("hist").innerHTML=hh; lastHist=hh; }
+  sizeHist();
+  wireFailPop();
+  reanchorFailPop();
+}
+
+var lastHist=null, HIST_ROWS=8;
+/* Eight whole rows and half of the ninth. Measured, not computed from a row height: a long branch name
+   wraps on a phone, so rows are not one height. Re-measured every render because rotating the phone
+   re-wraps them; written only when it changes, since a new max-height can clamp the box's scroll. */
+function sizeHist(){
+  var hb=el("hist"), rows=hb.children, want="";
+  if(rows.length>HIST_ROWS){
+    var r=rows[HIST_ROWS];
+    want=(2*hb.clientTop+r.offsetTop+Math.round(r.offsetHeight/2))+"px";
+  }
+  if(hb.style.maxHeight!==want) hb.style.maxHeight=want;
+}
+
+function legendHtml(){
+  return '<h2>Legend</h2><div class="legend">'
    + [["var(--blue)","running","a gate half or a test in flight right now"],
       ["var(--green)","passed","finished and green — a run here has simply not been reaped yet"],
       ["var(--amber)","waiting","queued for its turn, or holding what others need"],
@@ -662,10 +731,6 @@ function render(){
       .map(function(l){return '<div class="lg"><i style="background:'+l[0]+'"></i><b style="color:'+l[0]+'">'+l[1]+'</b><span class="dim">'+l[2]+'</span></div>'}).join("")
    + '<div class="lg"><i class="dot" style="background:var(--green)"></i><b>status circle</b><span class="dim">how long ago the PC last synchronised: green fresh, amber falling behind, red the PC stopped publishing</span></div>'
    + '</div>';
-
-  el("body").innerHTML=h;
-  wireFailPop();
-  reanchorFailPop();
 }
 
 /* ---- boot ------------------------------------------------------------------------------------ */
@@ -816,7 +881,7 @@ el("repair").addEventListener("click",function(ev){
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
 <script>
 (function(){
-  var BUILD="20260919094038";
+  var BUILD="20260919194332";
   window.__QB_BUILD__=BUILD;
   if(BUILD.indexOf("APP_BUILD")>-1) return;
   var busy=false;
